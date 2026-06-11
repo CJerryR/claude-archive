@@ -106,6 +106,8 @@ ClaudeArchive/
 
 ## 文档
 
+- 🚀 [新手使用手册 docs/新手使用手册.md](docs/新手使用手册.md)（**分享给别人看这份**）
+- 🗂️ [快速上手卡片 docs/快速上手卡片.html](docs/快速上手卡片.html)（一页图文，可打印）
 - [详细使用指南 docs/使用指南.md](docs/使用指南.md)
 - [更新日志 CHANGELOG.md](CHANGELOG.md)
 - [贡献指南 CONTRIBUTING.md](CONTRIBUTING.md)

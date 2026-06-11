@@ -35,6 +35,7 @@ const DEFAULT_SETTINGS = {
   keepStream: false,    // 保留原始 SSE 事件流
   refetchFull: true,    // 完成后用全参数补全抓取(确保 thinking/tool 完整)
   keepHistory: true,    // 保留每次抓取的 JSON 历史快照(便于多版本合并)
+  silentDownload: true, // 静默下载:完成后从浏览器下载记录移除(不删文件),避免刷屏
   debugLog: false       // 调试日志:在 Service Worker 控制台打印「追踪→保存」每一步
 };
 
@@ -133,21 +134,50 @@ function sha256OfText(text) {
       [...new Uint8Array(h)].map(x => x.toString(16).padStart(2, '0')).join(''));
   } catch (e) { return Promise.resolve(null); }
 }
-// 给一个 basename 按"已存版本数"生成版本名:第1版用原名,之后 name__v2.ext / __v3...
+// 拆分 basename → {stem, ext}
+function splitName(name) {
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? { stem: name.slice(0, dot), ext: name.slice(dot) } : { stem: name, ext: '' };
+}
+// 给一个 basename 生成第 N 版的名字:第1版原名,之后 name__v2.ext / __v3...
 function versionedName(baseName, versionIndex) {
   if (versionIndex <= 1) return baseName;
-  const dot = baseName.lastIndexOf('.');
-  const stem = dot > 0 ? baseName.slice(0, dot) : baseName;
-  const ext = dot > 0 ? baseName.slice(dot) : '';
+  const { stem, ext } = splitName(baseName);
   return `${stem}__v${versionIndex}${ext}`;
 }
 
 // ---------------- 下载 ----------------
-// 查询某相对路径是否"之前已下载且文件仍在磁盘上"。是 → 跳过,绝不重发下载(避免重复 + 弹窗)
+// 列出 chrome.downloads 记录里、某目录下、磁盘仍存在的所有文件名(basename)。
+// 用于"按磁盘真实情况"判断同名/算版本号,避免与 verMap 脱节导致撞名。
+function listDownloadedInDir(dirRel) {
+  return new Promise((resolve) => {
+    const dir = (dirRel.replace(/\\/g, '/').replace(/\/+$/, '')) + '/';
+    const set = new Set();
+    try {
+      chrome.downloads.search({ limit: 0, orderBy: ['-startTime'] }, (items) => {
+        if (!chrome.runtime.lastError && Array.isArray(items)) {
+          for (const it of items) {
+            if (!it || !it.filename) continue;
+            if (it.state !== 'complete' || it.exists === false) continue;
+            const fn = it.filename.replace(/\\/g, '/');
+            const i = fn.indexOf('/' + dir);
+            // 末尾匹配 ".../<dir>/<file>"(file 不再含子目录)
+            const at = fn.endsWith(dir) ? -1 : (i >= 0 ? i + 1 + dir.length : (fn.startsWith(dir) ? dir.length : -1));
+            if (at >= 0) {
+              const rest = fn.slice(at);
+              if (rest && !rest.includes('/')) set.add(rest);
+            }
+          }
+        }
+        resolve(set);
+      });
+    } catch (e) { resolve(set); }
+  });
+}
+// 查询某相对路径是否"已下载且磁盘仍在"
 function alreadyDownloaded(relPath) {
   return new Promise((resolve) => {
     try {
-      // Chrome 记录的是绝对路径,末尾匹配相对路径即可(用 / 与 \ 都试)
       const tail = relPath.replace(/\\/g, '/');
       chrome.downloads.search({ limit: 0, orderBy: ['-startTime'] }, (items) => {
         if (chrome.runtime.lastError || !Array.isArray(items)) { resolve(false); return; }
@@ -166,18 +196,50 @@ function alreadyDownloaded(relPath) {
 function downloadDataUrl(url, path) {
   return new Promise((resolve) => {
     try {
+      // conflictAction:'uniquify' 兜底——万一仍撞名,Chrome 静默加 (1),绝不弹"另存为/替换"窗口
       chrome.downloads.download(
-        { url, filename: path, conflictAction: 'overwrite', saveAs: false },
+        { url, filename: path, conflictAction: 'uniquify', saveAs: false },
         (id) => {
           if (chrome.runtime.lastError || id === undefined) {
             resolve({ ok: false, error: chrome.runtime.lastError?.message || 'download failed' });
           } else {
             resolve({ ok: true, id });
+            // 静默:下载完成后从下载记录/下载栏移除该条(文件仍保留在磁盘)
+            maybeEraseDownload(id);
           }
         }
       );
     } catch (e) { resolve({ ok: false, error: String(e) }); }
   });
+}
+// 下载完成即从浏览器下载记录中抹去这一条(不删文件,只清记录,避免刷屏)
+async function maybeEraseDownload(id) {
+  try {
+    const s = await getSettings();
+    if (s.silentDownload === false) return; // 用户可关闭
+    const finish = (downloadDelta) => {
+      if (downloadDelta.id !== id) return;
+      if (downloadDelta.state && downloadDelta.state.current === 'complete') {
+        chrome.downloads.onChanged.removeListener(finish);
+        try { chrome.downloads.erase({ id }, () => void chrome.runtime.lastError); } catch {}
+      } else if (downloadDelta.state && downloadDelta.state.current === 'interrupted') {
+        chrome.downloads.onChanged.removeListener(finish);
+      }
+    };
+    chrome.downloads.onChanged.addListener(finish);
+    // 兜底:有些完成事件可能早于监听注册,直接查一次
+    setTimeout(() => {
+      try {
+        chrome.downloads.search({ id }, (items) => {
+          const it = items && items[0];
+          if (it && it.state === 'complete') {
+            chrome.downloads.onChanged.removeListener(finish);
+            chrome.downloads.erase({ id }, () => void chrome.runtime.lastError);
+          }
+        });
+      } catch {}
+    }, 1500);
+  } catch {}
 }
 async function saveText(path, text, mime = 'text/plain') {
   const url = await toDataUrl({ kind: 'text', text, mime });
@@ -299,53 +361,64 @@ async function archive(convId, { force = false } = {}) {
   if (settings.saveAssets) {
     const savedKey = `saved_files_${convId}`;
     const savedRec = (await chrome.storage.local.get(savedKey))[savedKey] || {};
-    // 内容版本表:basename -> [hash, hash, ...](按出现顺序,索引即版本号-1)
+    // 内容版本表:basename -> [{hash, name}, ...](已落盘的各版本)
     const verKey = `filever_${convId}`;
     const verMap = (await chrome.storage.local.get(verKey))[verKey] || {};
-    // 已见过的所有内容指纹(跨文件名,用于图片等"同图换名"也不重存)
+    // 兼容旧格式(basename -> [hash,...]):转成 [{hash,name}]
+    for (const k of Object.keys(verMap)) {
+      if (Array.isArray(verMap[k]) && verMap[k].length && typeof verMap[k][0] === 'string') {
+        verMap[k] = verMap[k].map((h, i) => ({ hash: h, name: versionedName(k, i + 1) }));
+      }
+    }
+    // 全局已存指纹(同一张图换名也不重存)
     const seenHashes = new Set();
-    for (const arr of Object.values(verMap)) for (const h of arr) seenHashes.add(h);
+    for (const arr of Object.values(verMap)) for (const v of arr) if (v && v.hash) seenHashes.add(v.hash);
 
     const tabId = await findTab();
-    const convDir = filesDirFor(conv); // files/{对话码}/  —— 所有产出统一放这,不再按轮次建文件夹
+    const convDir = filesDirFor(conv); // files/{对话码}/
+
+    // 已占用的文件名集合 = 我们自己持久记录里该对话已存的所有版本名(不依赖会被擦除的下载历史)
+    const diskNames = new Set();
+    for (const arr of Object.values(verMap)) for (const v of arr) if (v && v.name) diskNames.add(v.name);
+    // 再并入 savedRec 里记录过的(兼容历史数据)
+    for (const rel of Object.values(savedRec)) {
+      if (typeof rel === 'string') { const b = rel.split('/').pop(); if (b) diskNames.add(b); }
+    }
+
+    // 决定一个待存内容应使用的文件名;返回 null 表示"无需保存"(同哈希已存)
+    const decideName = (baseName, hash) => {
+      const arr = verMap[baseName] || (verMap[baseName] = []);
+      // 规则3:这份内容已存过(任何名字)→ 不存
+      if (hash && seenHashes.has(hash)) return null;
+      // 规则1+2:从第 1 版开始找一个"磁盘上不存在"的名字,绝不覆盖
+      let idx = 1, cand = versionedName(baseName, idx);
+      while (diskNames.has(cand)) { idx++; cand = versionedName(baseName, idx); }
+      return cand;
+    };
+    const remember = (baseName, hash, name) => {
+      (verMap[baseName] || (verMap[baseName] = [])).push({ hash: hash || null, name });
+      if (hash) seenHashes.add(hash);
+      diskNames.add(name);            // 立刻占用该名,后续同名内容顺延 v(n+1)
+      savedRec['gen:' + (hash || (convDir + '/' + name))] = convDir + '/' + name;
+    };
 
     if (tabId != null) {
-      const assets = collectAssets(st.data, st.orgId, convId); // [{path,name,uuid,subdir,...}]
+      const assets = collectAssets(st.data, st.orgId, convId);
       for (const a of assets) {
         const resp = await askTab(tabId, { kind: 'fetchAsset', url: a.path });
         if (!resp || !resp.ok || !resp.b64) continue;
-
-        // 内容指纹
         const hash = await sha256OfB64(resp.b64);
-        // 这份内容(全局)已经存过 → 跳过,绝不重复下载/保存
-        if (hash && seenHashes.has(hash)) continue;
-
-        // 目标文件名(按真实 content-type 定扩展名;webp 就 .webp)
+        if (hash && seenHashes.has(hash)) continue;          // 规则3:同哈希不存
         const baseName = pickFileName(resp.cd, a.name, a.path, resp.ct);
-        const versions = verMap[baseName] || [];
-        // 同名文件:若该内容指纹已在此名下出现 → 跳过;否则是"新版本"
-        if (hash && versions.includes(hash)) continue;
-        const versionIndex = versions.length + 1;       // 第几个不同版本
-        const finalName = versionedName(baseName, versionIndex);
+        const finalName = decideName(baseName, hash);
+        if (!finalName) continue;
         const rel = `${convDir}/${finalName}`;
-
-        // 磁盘已有该文件(跨会话/上一次已存)→ 记一笔后跳过,不再发下载(避免弹窗)
-        if (await alreadyDownloaded(`${base}/${rel}`)) {
-          if (hash) { versions.push(hash); verMap[baseName] = versions; seenHashes.add(hash); }
-          savedRec['gen:' + (hash || rel)] = rel;
-          continue;
-        }
-
         const dl = await saveB64(`${base}/${rel}`, resp.b64, (resp.ct || '').split(';')[0]);
-        if (dl.ok) {
-          fileCount++;
-          if (hash) { versions.push(hash); verMap[baseName] = versions; seenHashes.add(hash); }
-          savedRec['gen:' + (hash || rel)] = rel;
-        }
+        if (dl.ok) { fileCount++; remember(baseName, hash, finalName); }
       }
     }
 
-    // 文本附件(放对话目录,按内容指纹去重)
+    // 文本附件(同规则)
     for (const m of (st.data.chat_messages || [])) {
       for (const a of (m.attachments || [])) {
         if (a && typeof a.extracted_content === 'string' && a.extracted_content.trim()) {
@@ -353,16 +426,11 @@ async function archive(convId, { force = false } = {}) {
           if (hash && seenHashes.has(hash)) continue;
           const stem = safeName(String(a.file_name || 'attachment').replace(/\.[^.]+$/, ''), 70) || 'attachment';
           const baseName = stem + '.txt';
-          const versions = verMap[baseName] || [];
-          if (hash && versions.includes(hash)) continue;
-          const finalName = versionedName(baseName, versions.length + 1);
+          const finalName = decideName(baseName, hash);
+          if (!finalName) continue;
           const rel = `${convDir}/${finalName}`;
-          if (await alreadyDownloaded(`${base}/${rel}`)) {
-            if (hash) { versions.push(hash); verMap[baseName] = versions; seenHashes.add(hash); }
-            continue;
-          }
           const dl = await saveText(`${base}/${rel}`, a.extracted_content, 'text/plain');
-          if (dl.ok) { fileCount++; if (hash) { versions.push(hash); verMap[baseName] = versions; seenHashes.add(hash); } }
+          if (dl.ok) { fileCount++; remember(baseName, hash, finalName); }
         }
       }
     }

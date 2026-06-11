@@ -1,7 +1,7 @@
 // background.js — service worker(module)
 // 状态机:接收捕获 → 合并会话状态 → 触发全参数补全抓取 → 防抖写盘(MD/JSON/资源)。
 import {
-  buildMarkdown, buildJson, dirFor, collectAssets, pickFileName, activePath, safeName, assignFileNames
+  buildMarkdown, buildJson, dirFor, collectAssets, pickFileName, activePath, safeName, assignFileNames, filesDirFor, convHash
 } from './exporter.js';
 
 const ROOT = 'ClaudeArchive';
@@ -172,6 +172,7 @@ async function archive(convId, { force = false } = {}) {
     const savedNames = new Set(Object.values(savedRec));
 
     const tabId = await findTab();
+    const fdir = filesDirFor(conv); // files/{对话码}
     if (tabId != null) {
       const assets = collectAssets(st.data, st.orgId, convId); // [{path,name,uuid}]
       // 确定性命名:同 uuid 同名只一份;不同文件同名加 __uuid8 区分
@@ -190,7 +191,8 @@ async function archive(convId, { force = false } = {}) {
       };
 
       for (const a of assets) {
-        const idKey = a.uuid || a.path;        // 文件身份
+        // 文件身份:有 uuid 用 uuid(同名不同版本=不同uuid,各自保存);否则用 path
+        const idKey = a.uuid || a.path;
         // 增量:这个文件之前已成功保存过 → 跳过(不重抓、不覆盖历史)
         if (savedRec[idKey]) continue;
 
@@ -198,11 +200,10 @@ async function archive(convId, { force = false } = {}) {
         if (!resp || !resp.ok) continue;
 
         let finalName = nameMap.get(a.path) || pickFileName(resp.cd, a.name, a.path, resp.ct);
-        // 若推断名没扩展名,用响应 content-type 补
         finalName = pickFileName(resp.cd, finalName, a.path, resp.ct);
         finalName = ensureUnique(finalName, idKey);
 
-        const dl = await saveB64(`${base}/files/${finalName}`, resp.b64, (resp.ct || '').split(';')[0]);
+        const dl = await saveB64(`${base}/${fdir}/${finalName}`, resp.b64, (resp.ct || '').split(';')[0]);
         if (dl.ok) {
           fileCount++;
           savedRec[idKey] = finalName;
@@ -220,7 +221,7 @@ async function archive(convId, { force = false } = {}) {
           const stem = safeName(String(a.file_name || 'attachment').replace(/\.[^.]+$/, ''), 70) || 'attachment';
           let nm = stem + '.txt';
           if (savedNames.has(nm)) { let k = 2; while (savedNames.has(`${stem}__${k}.txt`)) k++; nm = `${stem}__${k}.txt`; }
-          const dl = await saveText(`${base}/files/${nm}`, a.extracted_content, 'text/plain');
+          const dl = await saveText(`${base}/${fdir}/${nm}`, a.extracted_content, 'text/plain');
           if (dl.ok) { fileCount++; savedRec[idKey] = nm; savedNames.add(nm); }
         }
       }

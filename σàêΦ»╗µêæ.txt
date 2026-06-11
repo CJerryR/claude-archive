@@ -1,24 +1,20 @@
-Claude Archive 套件 (v1.8.0)
+Claude Archive 套件 (v1.9.0)
 ============================
 
-1) claude-archive/   —— 浏览器扩展
-   Chrome 开 chrome://extensions(Edge: edge://extensions)→「开发者模式」
-   →「加载已解压的扩展程序」→ 选 claude-archive 文件夹。正常聊天自动存到「下载/ClaudeArchive/」。
-   旧对话:打开它、等加载完,点扩展弹窗「保存当前对话(全量)」。
+1) claude-archive/   —— 浏览器扩展(Chrome/Edge:开发者模式→加载已解压的扩展程序→选此文件夹)
+2) 本地查看器/viewer.html —— 双击打开,「选择存档文件夹」选 ClaudeArchive
 
-2) 本地查看器/viewer.html  —— 仿 Claude 网页版查看器
-   双击打开 →「选择存档文件夹」选 ClaudeArchive(同一对话多份 JSON / history 快照会自动合并去重)。
+本次更新(v1.9.0):多轮对话文件永不冲突
+  · 目录结构:每个对话独立文件夹,文件再按【对话辨识码】(uuid前8位)分子目录:
+      ClaudeArchive/{对话名}__{码}/files/{对话码}/viewer.html
+    不同对话即使都有同名 viewer.html,内容不同也各自保存、互不覆盖。
+  · 同一对话内:同名但不同文件(不同路径/uuid)→ 加 __uuid8 区分,全部保留;
+    同名同文件(同一路径)→ 只一份(服务器只保留当前版本)。
+  · 跨会话新版本累积:生成文件按 uuid 增量,每次抓到的新版本都留下(配合 history/ 快照)。
+  · 生成文件扩展名修正:claude-archive-suite.zip / viewer.html 等带正确后缀。
 
-本次重大修复(v1.8.0):
-  · 【核心】Claude 生成给你的文件现在能抓到了!之前完全漏掉——这些文件不在 JSON 的 files 字段,
-    而是藏在 present_files 工具结果的 local_resource 里(带 file_path)。现在遍历这些路径,
-    用 wiggle/download-file?path= 接口逐个下载。viewer 里也会在消息末尾「Claude 生成的文件」分组显示。
-  · 【修复】点图片不再触发下载:改成点击开灯箱预览(图片本就在本地),下载是独立的小按钮。
-    可看的文件(pdf/html/txt)点击新标签打开,zip/docx 等点下载按钮才下。
-  · 历史自动合并:载入文件夹时,同一对话的多份 JSON 和 history/ 快照静默合并去重,无需手动操作。
-  · 文件按路径去重,同名不同文件用 __uuid8 区分,文件夹内不冲突。
+此前已有:Claude生成文件抓取(present_files local_resource)、点图灯箱预览不下载、
+两类文件下载(图片preview/文档wiggle)、思考链真实摘要标签、分支切换、打断/工具上限徽标、
+多版本JSON自动合并去重、历史快照、深浅主题。
 
-关于"遍历下载 / 接大模型":现在用确定性的路径遍历(从 present_files 提取 file_path)即可,
-不需要大模型介入;接口格式严格按你给的真实链接实现,官方 claude.ai 与 claude.hk.cn 都覆盖。
-
-全部本地运行,不上传数据。
+全部本地运行,不上传数据。支持 claude.ai 与 claude.hk.cn。

@@ -97,6 +97,29 @@ Claude 的对话文件分两类,下载走**不同接口**,扩展都已覆盖:
 
 ---
 
+
+
+## 目录结构(多对话不冲突)
+
+每个对话独立顶层目录,文件再按对话辨识码分子目录,跨对话同名文件互不覆盖:
+
+```
+ClaudeArchive/
+  {对话名}__{uuid8}/
+    conversation.json
+    conversation.md
+    history/                      # 每次抓取的带时间戳 JSON 快照(自动合并用)
+    files/
+      {对话码}/                   # = 对话 uuid 前 8 位
+        viewer.html
+        claude-archive-suite.zip
+        preview_dark.png ...
+```
+
+- 不同对话即使都生成 `viewer.html`,因在各自 `files/{对话码}/` 下,内容不同也不冲突。
+- 同一对话内同名不同文件(不同路径/uuid)→ 加 `__{uuid8}` 后缀区分,全部保留。
+- 同名同文件(同路径)→ 只存一份(服务器只保留当前版本)。
+
 ## 六、故障排查
 
 | 现象 | 处理 |

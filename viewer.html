@@ -60,6 +60,7 @@
   .load-btn svg{width:17px;height:17px;flex:none;color:var(--accent)}
   .load-btn-sub{margin-top:6px;padding:7px 11px;font-size:12.5px;color:var(--text-2)}
   .load-btn-sub svg{width:15px;height:15px}
+  .btn-hint{font-size:10.5px;color:var(--text-faint);line-height:1.4;margin:3px 2px 0;padding-left:1px}
 
   .search{padding:8px 12px 4px;position:relative}
   .search svg{position:absolute;left:22px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--text-3)}
@@ -428,31 +429,33 @@
     <div class="brand">
       <span class="logo">Claude</span>
       <span class="sp">
-        <span class="ic" id="statsBtn" title="统计">
+        <span class="ic" id="statsBtn" title="统计：看你和 Claude 的总览数据（说了多少话、思考多久、工具排行等）">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </span>
-        <span class="ic" id="themeBtn" title="切换主题">
+        <span class="ic" id="themeBtn" title="切换深色 / 浅色主题">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke-linecap="round"/></svg>
         </span>
       </span>
     </div>
 
     <div class="side-pad">
-      <button class="load-btn" id="loadBtn">
+      <button class="load-btn" id="loadBtn" title="选中下载目录里的 ClaudeArchive 文件夹，载入里面所有对话来浏览">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" stroke-linejoin="round"/></svg>
         选择存档文件夹
       </button>
-      <button class="load-btn load-btn-sub" id="loadJsonBtn" title="可同时选同一对话的多份 JSON,自动合并去重">
+      <div class="btn-hint">选 ClaudeArchive 整个文件夹，载入全部对话</div>
+      <button class="load-btn load-btn-sub" id="loadJsonBtn" title="直接选一份或多份 conversation.json；同一对话的多份会自动合并去重（含分支）">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3v5h5M7 3h7l5 5v11a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" stroke-linejoin="round"/></svg>
         选 JSON(可多选合并)
       </button>
+      <div class="btn-hint">只选 JSON 文件；多份同一对话自动合并</div>
       <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
       <input type="file" id="jsonInput" accept=".json,application/json" multiple hidden>
     </div>
 
     <div class="search">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4" stroke-linecap="round"/></svg>
-      <input id="searchInput" placeholder="搜索对话…" autocomplete="off">
+      <input id="searchInput" placeholder="搜索对话…" autocomplete="off" title="按对话标题筛选下方列表">
     </div>
 
     <nav class="convlist" id="convList">
@@ -468,7 +471,7 @@
       <span class="top-model" id="topModel"></span>
       <span class="top-merged" id="topMerged" style="display:none"></span>
       <div class="top-actions">
-        <button class="top-btn" id="reloadBtn" title="重新选择文件夹">
+        <button class="top-btn" id="reloadBtn" title="重新选择 ClaudeArchive 文件夹（换一个存档来看）">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" stroke-linejoin="round"/></svg>
           更换存档
         </button>
@@ -775,7 +778,8 @@ function toolInputNode(use){
 }
 function processTimeline(steps){
   // steps: [{kind:'think',block} | {kind:'tool',use,result}]
-  // 头部标签:用各 thinking 块最后一条 summary 串起来(Claude 的"在做什么"),无则退回计数
+  // 头部标签:优先用 thinking 的最后一条 summary(Claude 的"在做什么");
+  // 若思考块没有 summary,则回退用第一个工具步骤的 message(动作描述);再无则计数。
   const labels=[];
   for(const st of steps){
     if(st.kind==='think'){
@@ -783,11 +787,20 @@ function processTimeline(steps){
       if(tags.length) labels.push(tags[tags.length-1]);
     }
   }
-  const nTool=steps.filter(s=>s.kind==='tool').length;
+  const toolSteps=steps.filter(s=>s.kind==='tool');
+  const nTool=toolSteps.length;
+  const firstToolMsg=(()=>{
+    for(const st of toolSteps){
+      const msg=(st.use&&st.use.message)||(st.result&&st.result.message)||'';
+      if(msg && !/^Generat(ing|ed)\b/i.test(msg)) return msg;
+    }
+    return '';
+  })();
   let head;
   if(labels.length){
-    // 折叠态显示最后一个阶段标签(最贴近"刚才/正在做什么"),多段时加 +N
     head = esc(labels[labels.length-1]) + (labels.length>1 ? ' <span class="pcount">+'+(labels.length-1)+' 步</span>' : '');
+  } else if(firstToolMsg){
+    head = esc(firstToolMsg) + (nTool>1 ? ' <span class="pcount">· 共 '+nTool+' 步</span>' : '');
   } else {
     head = '思考' + (nTool ? ' <span class="pcount">· 调用 '+nTool+' 次工具</span>' : '');
   }

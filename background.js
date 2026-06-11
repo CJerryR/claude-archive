@@ -191,7 +191,50 @@ function askTab(tabId, msg, timeoutMs = 30000) {
   });
 }
 
-// ---------------- 核心:归档一个会话 ----------------
+// 把一个 Claude 标签页导航到指定对话,等待拦截器抓到该对话的数据(用于内存里没有的历史对话)
+async function navigateAndCapture(convId, { timeoutMs = 25000 } = {}) {
+  if (state.get(convId)?.data) return true; // 已在内存
+  let tabId = await findTab();
+  // 没有任何 Claude 标签页 → 新建一个(后台)
+  let createdTab = false;
+  const origin = 'https://claude.ai';
+  if (tabId == null) {
+    const t = await chrome.tabs.create({ url: `${origin}/chat/${convId}`, active: false });
+    tabId = t.id; createdTab = true;
+  } else {
+    try {
+      const t = await chrome.tabs.get(tabId);
+      const m = String(t.url || '').match(/\/chat\/([0-9a-f-]{36})/i);
+      const base = (String(t.url||'').match(/^https?:\/\/[^/]+/) || [origin])[0];
+      if (!m || m[1].toLowerCase() !== convId.toLowerCase()) {
+        await chrome.tabs.update(tabId, { url: `${base}/chat/${convId}` });
+      }
+    } catch { return false; }
+  }
+  // 轮询等待 state 里出现该对话数据(拦截器捕获 conversation JSON 后写入)
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    await new Promise(r => setTimeout(r, 600));
+    if (state.get(convId)?.data) {
+      // 触发一次全参数补全抓取,确保 thinking/tool 完整
+      const st = state.get(convId);
+      if (st?.orgId) { try { await refetchFull(st.orgId, convId); await new Promise(r => setTimeout(r, 800)); } catch {} }
+      return true;
+    }
+  }
+  return false;
+}
+
+// 归档指定 convId:若内存没有,先导航抓取再归档
+async function archiveById(convId, { force = true } = {}) {
+  if (!state.get(convId)?.data) {
+    const ok = await navigateAndCapture(convId);
+    if (!ok) return { ok: false, error: '无法加载该对话(需要登录的 Claude 标签页)' };
+  }
+  return await archive(convId, { force });
+}
+
+
 async function archive(convId, { force = false } = {}) {
   const st = state.get(convId);
   if (!st || !st.data) return { ok: false, error: 'no state' };
@@ -444,7 +487,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({
         ok: true, settings, stats: stats || {},
         convCount: Object.keys(index || {}).length,
-        tracked: state.size, current
+        tracked: Object.keys(index || {}).length, // 已跟踪=持久索引里的对话数(刷新不清零)
+        current
       });
     })();
     return true;
@@ -476,12 +520,44 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.kind === 'popup:saveAll') {
     (async () => {
-      let saved = 0, files = 0;
-      for (const cid of [...state.keys()]) {
-        const r = await archive(cid, { force: true });
-        if (r.ok && !r.skipped) { saved++; files += (r.files || 0); }
+      const { index } = await chrome.storage.local.get('index');
+      const ids = Object.keys(index || {});
+      // 同时把当前打开的对话并入(可能还没进 index)
+      const tabId0 = await findTab();
+      if (tabId0 != null) {
+        try { const t = await chrome.tabs.get(tabId0); const m = String(t.url||'').match(/\/chat\/([0-9a-f-]{36})/i); if (m && !ids.includes(m[1])) ids.unshift(m[1]); } catch {}
       }
-      sendResponse({ ok: true, saved, files });
+      let saved = 0, files = 0, failed = 0, done = 0;
+      for (const cid of ids) {
+        await chrome.storage.local.set({ allTask: { phase: 'saveAll', total: ids.length, done, cur: (index?.[cid]?.name || cid) } });
+        const r = await archiveById(cid, { force: true });
+        if (r.ok) { saved++; files += (r.files || 0); } else { failed++; }
+        done++;
+      }
+      await chrome.storage.local.remove('allTask');
+      sendResponse({ ok: true, saved, files, failed, total: ids.length });
+    })();
+    return true;
+  }
+
+  // 检查全部(已跟踪)对话的保存完整性,并自动补下缺失文件
+  if (msg.kind === 'popup:checkIntegrity') {
+    (async () => {
+      const { index } = await chrome.storage.local.get('index');
+      const ids = Object.keys(index || {});
+      if (!ids.length) return sendResponse({ ok: true, checked: 0, fixed: 0, missing: 0, note: '本地还没有已跟踪的对话' });
+      let checked = 0, fixedFiles = 0, convWithMissing = 0, failed = 0;
+      for (const cid of ids) {
+        await chrome.storage.local.set({ allTask: { phase: 'check', total: ids.length, done: checked, cur: (index?.[cid]?.name || cid) } });
+        // archiveById 内部会重新抓取并只下载缺失/新版本文件(已存的会跳过)
+        const r = await archiveById(cid, { force: true });
+        if (!r.ok) { failed++; checked++; continue; }
+        const added = (r.files || 0);
+        if (added > 0) { convWithMissing++; fixedFiles += added; }
+        checked++;
+      }
+      await chrome.storage.local.remove('allTask');
+      sendResponse({ ok: true, checked, fixed: fixedFiles, convWithMissing, failed, total: ids.length });
     })();
     return true;
   }

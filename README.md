@@ -84,6 +84,17 @@
 4. **大文件**:单文件超 48 MB 会跳过。
 5. 个人备份工具,请遵守服务条款,数据仅自用。
 
+
+
+## 文件下载的两类接口(技术说明)
+
+Claude 的对话文件分两类,下载走**不同接口**,扩展都已覆盖:
+1. **图片**(`file_kind: image`):走 `/api/{org}/files/{uuid}/preview`(及 original/contents 等候选)。
+2. **其它文件**(`file_kind: blob`,如 docx / json / md / zip,带 `path` 字段):走
+   `/api/organizations/{org}/conversations/{convId}/wiggle/download-file?path={文件路径}`。
+
+早期版本只处理了第一类,导致"只有图片能下、文档/代码下不了"。现已同时支持。
+
 ---
 
 ## 六、故障排查

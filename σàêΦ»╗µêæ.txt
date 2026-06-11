@@ -1,21 +1,22 @@
-Claude Archive 套件 (v1.4.0)
+Claude Archive 套件 (v1.5.0)
 ============================
 
-两样东西:
+1) claude-archive/        —— 浏览器扩展
+   Chrome 打开 chrome://extensions(Edge: edge://extensions)→ 开「开发者模式」
+   →「加载已解压的扩展程序」→ 选 claude-archive 文件夹。
+   装好后正常聊天即自动存到「下载/ClaudeArchive/」。
+   历史旧对话:打开它、等加载完,点扩展弹窗「保存当前对话(全量)」。
 
-1) claude-archive/        —— 浏览器扩展(插件)
-   安装:Chrome 打开 chrome://extensions(Edge 是 edge://extensions)→
-   开启右上「开发者模式」→「加载已解压的扩展程序」→ 选这个 claude-archive 文件夹。
-   装好后正常聊天即自动把对话(含思考、工具调用、上传与生成的文件)存到「下载/ClaudeArchive/」。
+2) 本地查看器/viewer.html  —— 仿 Claude 网页版查看器
+   双击打开 →「选择存档文件夹」→ 选「下载/ClaudeArchive」。
 
-2) 本地查看器/viewer.html  —— 仿 Claude 网页版的本地查看器
-   双击打开 → 点「选择存档文件夹」→ 选中「下载/ClaudeArchive」即可浏览。
+本次修复(v1.5.0):
+  · 补齐第二类文件下载!图片走 /files/{uuid}/preview,而你上传的文档、
+    Claude 生成的 json/md/zip/docx 等(file_kind=blob)走的是
+    /conversations/{convId}/wiggle/download-file?path=... 这套接口。
+    早期只处理了图片,所以文档/代码下不了;现在两类都能下。
 
-本次更新:
-  · 文件下载修复:不再写死 claude.ai 域名,按你的真实站点(claude.hk.cn 等)抓取,
-    图片/生成的代码/附件都能存下来。
-  · 思考链改成 Claude 官网样式:标签直接显示该段思考"在做什么"(取自 JSON 的 summaries),
-    不再是死板的"思考过程";工具调用内嵌在思考链里,可逐环点开看参数/结果。
-  · 新增:分支左右切换(‹ 2/2 ›)、打断徽标、工具调用上限徽标。
+此前已有:思考链用真实摘要标签(summaries)、工具内嵌思考链、
+分支左右切换 ‹2/2›、打断/工具上限徽标、按真实域名抓取。
 
-支持 claude.ai 与中转站 claude.hk.cn;换别的中转域名见 README。全部本地运行,不上传数据。
+支持 claude.ai 与 claude.hk.cn。全部本地运行,不上传数据。

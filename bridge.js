@@ -66,9 +66,15 @@ function assetCandidates(input) {
     return out;
   }
 
+  // wiggle 下载接口(非图片文件:docx/json/md/zip 等):带 ?path= 查询,原样透传
+  if (/\/wiggle\/download-file\?/i.test(path) || /download-file\?path=/i.test(path)) {
+    push(path);
+    return out;
+  }
+
   // 其它(attachments 等):原样 + 去掉/补一个 contents
   push(path);
-  if (!/\/(contents|download)(\?|$)/i.test(path)) push(path.replace(/\/?(\?|$)/, '/contents$1'));
+  if (!/[?&]/.test(path) && !/\/(contents|download)(\?|$)/i.test(path)) push(path.replace(/\/?(\?|$)/, '/contents$1'));
   return out;
 }
 

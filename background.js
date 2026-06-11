@@ -162,7 +162,7 @@ async function archive(convId, { force = false } = {}) {
     // 1) URL 资源(图片、生成文件、可下载的附件)
     const tabId = await findTab();
     if (tabId != null) {
-      const assets = collectAssets(st.data, st.orgId);
+      const assets = collectAssets(st.data, st.orgId, convId);
       for (const [url, suggested] of assets) {
         const resp = await askTab(tabId, { kind: 'fetchAsset', url });
         if (!resp || !resp.ok) continue;

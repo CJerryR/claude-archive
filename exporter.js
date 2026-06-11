@@ -203,8 +203,8 @@ export function buildJson(conv) {
 // 关键:不在这里补全域名(官方 claude.ai,中转站 claude.hk.cn 等各不同)。
 // 返回按"文件"去重的条目:{ key, name, path }。path 是相对路径,
 // 由页面端 bridge.js 按 location.origin 补全并展开成多个候选逐个尝试。
-export function collectAssets(data, orgId) {
-  const byKey = new Map(); // uuid 或 path -> { name, path }
+export function collectAssets(data, orgId, convId) {
+  const byKey = new Map(); // uuid/path/url -> { name, path }
   const norm = (u) => {
     if (!u || typeof u !== 'string') return null;
     u = u.replace(/\\\//g, '/').trim();
@@ -214,11 +214,12 @@ export function collectAssets(data, orgId) {
     return u.startsWith('/') ? u : null;
   };
   const uuidOf = (p) => { const m = p && p.match(/\/files\/([0-9a-f-]{36})/i); return m ? m[1].toLowerCase() : null; };
+  const pathOf = (p) => { const m = p && p.match(/[?&]path=([^&]+)/i); return m ? decodeURIComponent(m[1]).toLowerCase() : null; };
   const consider = (u, name) => {
     const p = norm(u);
     if (!p) return;
     if (/\/thumbnail(\b|$|\?)/i.test(p)) return; // 缩略图不要
-    const key = uuidOf(p) || p;
+    const key = uuidOf(p) || pathOf(p) || p;
     const prev = byKey.get(key);
     if (!prev) { byKey.set(key, { name: name || null, path: p }); return; }
     if (name && !prev.name) prev.name = name;
@@ -226,14 +227,24 @@ export function collectAssets(data, orgId) {
     const better = /\/(original|full|contents|download)(\b|$|\?)/i.test(p) && !/\/(original|full|contents|download)(\b|$|\?)/i.test(prev.path);
     if (better) prev.path = p;
   };
+  // 非图片文件(file_kind=blob 或有 path 字段,如 docx/json/md/zip)→ wiggle 下载接口
+  const considerBlob = (f, name) => {
+    const fp = f && typeof f.path === 'string' ? f.path : null;
+    if (fp && orgId && convId) {
+      consider(`/api/organizations/${orgId}/conversations/${convId}/wiggle/download-file?path=${encodeURIComponent(fp)}`, name);
+      return true;
+    }
+    return false;
+  };
 
   for (const m of (data?.chat_messages || [])) {
     for (const a of (m.attachments || [])) {
       consider(a.preview_url, a.file_name);
       consider(a.file_url, a.file_name);
       consider(a.document_url, a.file_name);
+      considerBlob(a, a.file_name); // 附件带 path 时走 wiggle
       const fid = a.file_uuid || a.id;
-      if (!a.preview_url && !a.file_url && !a.document_url && fid && orgId) {
+      if (!a.preview_url && !a.file_url && !a.document_url && !a.path && fid && orgId) {
         consider(`/api/${orgId}/files/${fid}/preview`, a.file_name);
       }
     }
@@ -243,22 +254,30 @@ export function collectAssets(data, orgId) {
     ];
     for (const f of files) {
       const name = f.file_name || f.file_uuid || null;
+      const isImage = f.file_kind === 'image' || !!f.preview_url || !!(f.preview_asset && f.preview_asset.url);
       consider(f.preview_url, name);
+      if (f.preview_asset && f.preview_asset.url) consider(f.preview_asset.url, name);
       consider(f.file_url, name);
       consider(f.url, name);
-      if (f.preview_asset && f.preview_asset.url) consider(f.preview_asset.url, name);
       if (f.document && f.document.url) consider(f.document.url, name);
+      // 非图片(blob 等,如 docx/json/md/zip)→ wiggle/download-file?path=
+      const gotBlob = !isImage && considerBlob(f, name);
       const fid = f.file_uuid || f.uuid;
-      if (fid && orgId && !f.preview_url && !f.file_url) {
+      // 图片但没现成地址 → 拼 /files/{uuid}/preview
+      if (fid && orgId && isImage && !f.preview_url && !(f.preview_asset && f.preview_asset.url)) {
+        consider(`/api/${orgId}/files/${fid}/preview`, name);
+      }
+      // 非图片又没 path 兜底 → 退到 /files/preview
+      if (!isImage && !gotBlob && fid && orgId) {
         consider(`/api/${orgId}/files/${fid}/preview`, name);
       }
     }
   }
 
-  // 兜底:扫描整份 JSON 里任何 /api/.../files|attachments/... 地址
+  // 兜底:扫描整份 JSON 里任何 /api/.../files|attachments|download-file 地址
   try {
     const s = JSON.stringify(data);
-    const re = /"((?:https?:\/\/[^"/]+)?\/api\/[^"]*?(?:\/files\/|\/attachments\/)[^"]*?)"/gi;
+    const re = /"((?:https?:\/\/[^"/]+)?\/api\/[^"]*?(?:\/files\/|\/attachments\/|download-file)[^"]*?)"/gi;
     let mt;
     while ((mt = re.exec(s))) consider(mt[1]);
   } catch {}
@@ -291,13 +310,20 @@ export function pickFileName(contentDisposition, suggested, url, contentType) {
   }
   if (!name && suggested) name = String(suggested);
   if (!name) {
+    // wiggle 下载:?path=/mnt/.../xxx.docx → 取 basename
+    const pm = String(url || '').match(/[?&]path=([^&]+)/i);
+    if (pm) {
+      try { const dec = decodeURIComponent(pm[1]); name = dec.split('/').filter(Boolean).pop() || ''; } catch {}
+    }
+  }
+  if (!name) {
     try {
       // base 仅用于把相对路径解析出 pathname,域名无关紧要
       const p = new URL(url, 'http://x').pathname;
       const seg = p.split('/').filter(Boolean);
       name = seg[seg.length - 1] || 'file';
       // /files/{uuid}/preview|contents|thumbnail 这类:取 uuid 段更有辨识度
-      if (/^(contents|download|preview|thumbnail|document_contents)$/i.test(name) && seg.length >= 2) {
+      if (/^(contents|download|preview|thumbnail|document_contents|download-file)$/i.test(name) && seg.length >= 2) {
         name = seg[seg.length - 2];
       }
     } catch { name = 'file'; }

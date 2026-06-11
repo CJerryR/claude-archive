@@ -228,6 +228,22 @@ async function archive(convId, { force = false } = {}) {
     }
 
     await chrome.storage.local.set({ [savedKey]: savedRec });
+
+    // 进度记录:应下载文件总数(去重) vs 已保存,供 popup 进度条
+    try {
+      const allAssets = collectAssets(st.data, st.orgId, convId);
+      let expectText = 0;
+      for (const m of (st.data.chat_messages || [])) {
+        for (const a of (m.attachments || [])) {
+          if (a && typeof a.extracted_content === 'string' && a.extracted_content.trim()) expectText++;
+        }
+      }
+      const total = allAssets.length + expectText;
+      const saved = Object.keys(savedRec).length;
+      const prog = (await chrome.storage.local.get('progress')).progress || {};
+      prog[convId] = { name: st.data?.name || '未命名对话', total, saved, updatedAt: Date.now() };
+      await chrome.storage.local.set({ progress: prog });
+    } catch {}
   }
 
   st.savedSig = sig;

@@ -97,7 +97,53 @@ async function toDataUrl(payload) {
   return await chrome.runtime.sendMessage({ target: 'offscreen', cmd: 'toDataUrl', payload });
 }
 
+// 对 base64 内容算 SHA-256 指纹(用于"内容是否变化"判断)
+async function sha256OfB64(b64) {
+  try {
+    const bin = atob(b64);
+    const u = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    const h = await crypto.subtle.digest('SHA-256', u);
+    return [...new Uint8Array(h)].map(x => x.toString(16).padStart(2, '0')).join('');
+  } catch (e) { return null; }
+}
+function sha256OfText(text) {
+  try {
+    const u = new TextEncoder().encode(String(text == null ? '' : text));
+    return crypto.subtle.digest('SHA-256', u).then(h =>
+      [...new Uint8Array(h)].map(x => x.toString(16).padStart(2, '0')).join(''));
+  } catch (e) { return Promise.resolve(null); }
+}
+// 给一个 basename 按"已存版本数"生成版本名:第1版用原名,之后 name__v2.ext / __v3...
+function versionedName(baseName, versionIndex) {
+  if (versionIndex <= 1) return baseName;
+  const dot = baseName.lastIndexOf('.');
+  const stem = dot > 0 ? baseName.slice(0, dot) : baseName;
+  const ext = dot > 0 ? baseName.slice(dot) : '';
+  return `${stem}__v${versionIndex}${ext}`;
+}
+
 // ---------------- 下载 ----------------
+// 查询某相对路径是否"之前已下载且文件仍在磁盘上"。是 → 跳过,绝不重发下载(避免重复 + 弹窗)
+function alreadyDownloaded(relPath) {
+  return new Promise((resolve) => {
+    try {
+      // Chrome 记录的是绝对路径,末尾匹配相对路径即可(用 / 与 \ 都试)
+      const tail = relPath.replace(/\\/g, '/');
+      chrome.downloads.search({ limit: 0, orderBy: ['-startTime'] }, (items) => {
+        if (chrome.runtime.lastError || !Array.isArray(items)) { resolve(false); return; }
+        for (const it of items) {
+          if (!it || !it.filename) continue;
+          const fn = it.filename.replace(/\\/g, '/');
+          if ((fn === tail || fn.endsWith('/' + tail)) && it.state === 'complete' && it.exists !== false) {
+            resolve(true); return;
+          }
+        }
+        resolve(false);
+      });
+    } catch (e) { resolve(false); }
+  });
+}
 function downloadDataUrl(url, path) {
   return new Promise((resolve) => {
     try {
@@ -187,58 +233,77 @@ async function archive(convId, { force = false } = {}) {
   // 资源
   let fileCount = 0;
   if (settings.saveAssets) {
-    // 已保存文件记录(按对话持久化,跨会话/跨版本永久保留)→ idKey -> 相对路径
     const savedKey = `saved_files_${convId}`;
     const savedRec = (await chrome.storage.local.get(savedKey))[savedKey] || {};
+    // 内容版本表:basename -> [hash, hash, ...](按出现顺序,索引即版本号-1)
+    const verKey = `filever_${convId}`;
+    const verMap = (await chrome.storage.local.get(verKey))[verKey] || {};
+    // 已见过的所有内容指纹(跨文件名,用于图片等"同图换名"也不重存)
+    const seenHashes = new Set();
+    for (const arr of Object.values(verMap)) for (const h of arr) seenHashes.add(h);
 
     const tabId = await findTab();
-    const convDir = filesDirFor(conv); // files/{对话码}(普通图片/上传文件放这里)
+    const convDir = filesDirFor(conv); // files/{对话码}/  —— 所有产出统一放这,不再按轮次建文件夹
+
     if (tabId != null) {
-      const assets = collectAssets(st.data, st.orgId, convId); // [{path,name,uuid,subdir,round}]
-      // 文件名:同一目录内去重(不同轮次在不同子目录,天然不冲突)
-      const nameMap = assignFileNames(assets, (a) => pickFileName('', a.name, a.path, ''));
-
+      const assets = collectAssets(st.data, st.orgId, convId); // [{path,name,uuid,subdir,...}]
       for (const a of assets) {
-        const sub = a.subdir ? `files/${a.subdir}` : convDir;  // 生成文件→轮次目录;其余→对话目录
-        // 文件身份:含子目录,确保不同轮次同名文件各自记录、互不覆盖
-        const idKey = (a.subdir ? a.subdir + '|' : '') + (a.uuid || a.path);
-        // 增量:已成功保存过 → 跳过(不重抓、不覆盖)
-        if (savedRec[idKey]) continue;
-
         const resp = await askTab(tabId, { kind: 'fetchAsset', url: a.path });
-        if (!resp || !resp.ok) continue;
+        if (!resp || !resp.ok || !resp.b64) continue;
 
-        // 文件名:按响应真实 content-type 定扩展名(webp 就 .webp,png 就 .png,不强行改名)
-        let finalName = nameMap.get(a.path) || pickFileName(resp.cd, a.name, a.path, resp.ct);
-        finalName = pickFileName(resp.cd, finalName, a.path, resp.ct);
-        // 该目录内若已有同名(历史),加序号
-        const usedInDir = savedDirNames(savedRec, sub);
-        finalName = uniqueInDir(finalName, usedInDir);
+        // 内容指纹
+        const hash = await sha256OfB64(resp.b64);
+        // 这份内容(全局)已经存过 → 跳过,绝不重复下载/保存
+        if (hash && seenHashes.has(hash)) continue;
 
-        const dl = await saveB64(`${base}/${sub}/${finalName}`, resp.b64, (resp.ct || '').split(';')[0]);
+        // 目标文件名(按真实 content-type 定扩展名;webp 就 .webp)
+        const baseName = pickFileName(resp.cd, a.name, a.path, resp.ct);
+        const versions = verMap[baseName] || [];
+        // 同名文件:若该内容指纹已在此名下出现 → 跳过;否则是"新版本"
+        if (hash && versions.includes(hash)) continue;
+        const versionIndex = versions.length + 1;       // 第几个不同版本
+        const finalName = versionedName(baseName, versionIndex);
+        const rel = `${convDir}/${finalName}`;
+
+        // 磁盘已有该文件(跨会话/上一次已存)→ 记一笔后跳过,不再发下载(避免弹窗)
+        if (await alreadyDownloaded(`${base}/${rel}`)) {
+          if (hash) { versions.push(hash); verMap[baseName] = versions; seenHashes.add(hash); }
+          savedRec['gen:' + (hash || rel)] = rel;
+          continue;
+        }
+
+        const dl = await saveB64(`${base}/${rel}`, resp.b64, (resp.ct || '').split(';')[0]);
         if (dl.ok) {
           fileCount++;
-          savedRec[idKey] = sub + '/' + finalName; // 记完整相对路径,便于判重与统计
+          if (hash) { versions.push(hash); verMap[baseName] = versions; seenHashes.add(hash); }
+          savedRec['gen:' + (hash || rel)] = rel;
         }
       }
     }
 
-    // 文本附件兜底(放对话目录)
+    // 文本附件(放对话目录,按内容指纹去重)
     for (const m of (st.data.chat_messages || [])) {
       for (const a of (m.attachments || [])) {
         if (a && typeof a.extracted_content === 'string' && a.extracted_content.trim()) {
-          const idKey = 'att_' + (a.id || a.file_uuid || (a.file_name + ':' + a.file_size));
-          if (savedRec[idKey]) continue;
+          const hash = await sha256OfText(a.extracted_content);
+          if (hash && seenHashes.has(hash)) continue;
           const stem = safeName(String(a.file_name || 'attachment').replace(/\.[^.]+$/, ''), 70) || 'attachment';
-          const usedInDir = savedDirNames(savedRec, convDir);
-          const nm = uniqueInDir(stem + '.txt', usedInDir);
-          const dl = await saveText(`${base}/${convDir}/${nm}`, a.extracted_content, 'text/plain');
-          if (dl.ok) { fileCount++; savedRec[idKey] = convDir + '/' + nm; }
+          const baseName = stem + '.txt';
+          const versions = verMap[baseName] || [];
+          if (hash && versions.includes(hash)) continue;
+          const finalName = versionedName(baseName, versions.length + 1);
+          const rel = `${convDir}/${finalName}`;
+          if (await alreadyDownloaded(`${base}/${rel}`)) {
+            if (hash) { versions.push(hash); verMap[baseName] = versions; seenHashes.add(hash); }
+            continue;
+          }
+          const dl = await saveText(`${base}/${rel}`, a.extracted_content, 'text/plain');
+          if (dl.ok) { fileCount++; if (hash) { versions.push(hash); verMap[baseName] = versions; seenHashes.add(hash); } }
         }
       }
     }
 
-    await chrome.storage.local.set({ [savedKey]: savedRec });
+    await chrome.storage.local.set({ [savedKey]: savedRec, [verKey]: verMap });
 
     // 进度记录:应下载文件总数(去重) vs 已保存,供 popup 进度条
     try {

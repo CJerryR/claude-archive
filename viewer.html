@@ -1060,7 +1060,8 @@ function messageEl(m, conv, sibs){
   const files=[].concat(Array.isArray(m.files)?m.files:[], Array.isArray(m.files_v2)?m.files_v2:[]);
 
   // Claude 生成的文件:藏在 present_files 等工具结果的 local_resource 里(m.files 常为空)
-  // 计算与扩展一致的轮次目录名 r{序号}_{时分秒}_{uuid8},以便在本地按"该轮自己的文件夹"读取
+  // 兼容旧存档(轮次目录)同时支持新存档(对话级 + 版本化命名):传 round 仅作"优先尝试",
+  // resolveAsset 找不到会回退到按文件名(含 __vN 版本)匹配。
   const mIdx = (conv.data && Array.isArray(conv.data.chat_messages)) ? conv.data.chat_messages.indexOf(m) : -1;
   const roundTag = roundTagFor(m, mIdx);
   const genFiles=[];

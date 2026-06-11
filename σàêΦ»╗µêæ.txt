@@ -1,23 +1,25 @@
-Claude Archive 套件 (v1.6.0)
+Claude Archive 套件 (v1.7.0)
 ============================
 
 1) claude-archive/   —— 浏览器扩展
    Chrome 开 chrome://extensions(Edge: edge://extensions)→「开发者模式」
-   →「加载已解压的扩展程序」→ 选 claude-archive 文件夹。正常聊天即自动存到「下载/ClaudeArchive/」。
-   历史旧对话:打开它、等加载完,点扩展弹窗「保存当前对话(全量)」。
+   →「加载已解压的扩展程序」→ 选 claude-archive 文件夹。正常聊天自动存到「下载/ClaudeArchive/」。
+   旧对话:打开它、等加载完,点扩展弹窗「保存当前对话(全量)」。
 
 2) 本地查看器/viewer.html  —— 仿 Claude 网页版查看器
    双击打开 →「选择存档文件夹」选 ClaudeArchive,或「选 JSON(可多选合并)」直接选多份 JSON。
 
-本次新增(v1.6.0):
-  · 多版本合并去重!同一对话因连接问题抓到多份 JSON 时,查看器自动按消息 uuid 去重合并,
-    保留所有分支,leaf 取最新版。也可手动「选 JSON(可多选合并)」把多份一起选中。
-    合并后顶栏显示「已合并 N 版·去重」。
-  · 激活路径自动下钻到最深叶子(current_leaf 偶尔不是最末时,后续消息也能显示)。
+本次更新(v1.7.0):
+  · 同名文件不再互相覆盖:同一个文件(同 uuid)只存一份;真正不同的同名文件
+    (如多次上传/生成的 p_expanded.png)自动加 __uuid8 后缀区分,文件夹里不冲突。
+  · 增量保存、不动历史:已存过的文件跳过(不重抓不覆盖),只增量补新文件。
+  · 保留历史快照:每次抓取把 JSON 另存一份带时间戳到 history/,方便日后多版本合并去重。
+    (查看器载入文件夹会自动把这些历史快照与最新版合并)
+  · 更多文件类型:PDF 等用 /files/{uuid}/document_pdf 这类 variant 的也能抓了。
+  · 修复查看器"点文件打不开":即使文件被去重改名,也能按 uuid 正确定位;
+    pdf/html/txt/json 等点击在新标签打开查看。
 
-此前已有:
-  · 两类文件下载:图片 /files/{uuid}/preview;文档/代码(blob)走
-    /conversations/{convId}/wiggle/download-file?path=...
-  · 思考链用真实摘要标签(summaries);工具内嵌思考链;分支 ‹1/2› 切换;打断/工具上限徽标。
+此前已有:两类文件下载(图片 preview / 文档走 wiggle download-file)、思考链真实摘要标签、
+工具内嵌思考链、分支 ‹1/2› 切换、多版本合并去重、打断/工具上限徽标。
 
 支持 claude.ai 与 claude.hk.cn。全部本地运行,不上传数据。

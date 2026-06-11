@@ -219,11 +219,12 @@ export function collectAssets(data, orgId, convId) {
     const p = norm(u);
     if (!p) return;
     if (/\/thumbnail(\b|$|\?)/i.test(p)) return; // 缩略图不要
-    const key = uuidOf(p) || pathOf(p) || p;
+    const fu = uuidOf(p);                 // 文件 uuid(图片类有)
+    const key = fu || pathOf(p) || p;     // 同一文件的去重 key
     const prev = byKey.get(key);
-    if (!prev) { byKey.set(key, { name: name || null, path: p }); return; }
+    if (!prev) { byKey.set(key, { name: name || null, path: p, uuid: fu || null }); return; }
     if (name && !prev.name) prev.name = name;
-    // 同一文件:preview 比 thumbnail 好,contents/original 更好;这里偏好非 preview 的"全质量"路径
+    if (fu && !prev.uuid) prev.uuid = fu;
     const better = /\/(original|full|contents|download)(\b|$|\?)/i.test(p) && !/\/(original|full|contents|download)(\b|$|\?)/i.test(prev.path);
     if (better) prev.path = p;
   };
@@ -282,10 +283,50 @@ export function collectAssets(data, orgId, convId) {
     while ((mt = re.exec(s))) consider(mt[1]);
   } catch {}
 
-  // 输出为 Map(path -> name),保持与旧调用兼容(path 唯一即可)
-  const out = new Map();
-  for (const { name, path } of byKey.values()) out.set(path, name);
-  return out;
+  // 返回数组:{ path(相对), name(建议名,可空), uuid(文件 uuid,可空) }
+  return [...byKey.values()];
+}
+
+// 给一批资源分配"文件夹内不冲突"的最终文件名(确定性,可跨次复现)。
+// 规则:
+//  - 先按 (推断名) 分组;
+//  - 组内只有 1 个、或多个但同 uuid(同一文件)→ 用原名;
+//  - 组内多个不同 uuid(真正不同的同名文件)→ 加 __{uuid8} 后缀区分;无 uuid 则加序号。
+// 入参 assets: [{path,name,uuid}]; nameFor(asset)->推断名(交给调用方,通常用 pickFileName)
+export function assignFileNames(assets, nameFor) {
+  const groups = new Map(); // baseName -> [asset...]
+  for (const a of assets) {
+    const nm = nameFor(a);
+    a._nm = nm;
+    if (!groups.has(nm)) groups.set(nm, []);
+    groups.get(nm).push(a);
+  }
+  const result = new Map(); // path -> finalName
+  for (const [nm, arr] of groups) {
+    const uuids = new Set(arr.map(a => a.uuid).filter(Boolean));
+    const sameFile = arr.every(a => a.uuid && a.uuid === arr[0].uuid); // 全同 uuid = 同一文件
+    if (arr.length === 1 || sameFile) {
+      for (const a of arr) result.set(a.path, nm);
+      continue;
+    }
+    // 多个不同文件同名 → 加后缀区分
+    const dot = nm.lastIndexOf('.');
+    const stem = dot > 0 ? nm.slice(0, dot) : nm;
+    const ext = dot > 0 ? nm.slice(dot) : '';
+    let seq = 0;
+    const usedSuffix = new Set();
+    for (const a of arr) {
+      let suffix;
+      if (a.uuid) suffix = a.uuid.slice(0, 8);
+      else { seq++; suffix = String(seq); }
+      // 防止极端情况后缀也撞
+      let cand = `${stem}__${suffix}${ext}`;
+      while (usedSuffix.has(cand)) { seq++; cand = `${stem}__${suffix}_${seq}${ext}`; }
+      usedSuffix.add(cand);
+      result.set(a.path, cand);
+    }
+  }
+  return result; // path -> 最终文件名
 }
 
 // 从响应头/建议名/URL 推断文件名,并按 content-type 补扩展名

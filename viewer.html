@@ -664,12 +664,33 @@ function renderAssistantContent(content, container){
 /* ---------- 资源解析(把 files/ 里的文件映射成可点链接/图片) ---------- */
 const _urls=new Map();
 function objUrl(f){ if(_urls.has(f))return _urls.get(f); const u=URL.createObjectURL(f); _urls.set(f,u); return u; }
-function resolveAsset(conv, filename){
-  if(!filename||!conv) return null;
+function resolveAsset(conv, filename, uuid){
+  if(!conv) return null;
   const e = state.folders.get(conv._folder); if(!e||!e.files) return null;
-  const want=String(filename).toLowerCase();
-  for(const [name,file] of e.files){ if(name.toLowerCase()===want) return objUrl(file); }
-  for(const [name,file] of e.files){ if(name.split('/').pop().toLowerCase()===want) return objUrl(file); }
+  const entries=[...e.files]; // [relName, File]
+  const base=(n)=>n.split('/').pop();
+  // 1) 文件名精确匹配
+  if(filename){
+    const want=String(filename).toLowerCase();
+    for(const [n,f] of entries){ if(base(n).toLowerCase()===want) return objUrl(f); }
+  }
+  // 2) 按 uuid 短码匹配(去重命名会插入 __{uuid8})
+  if(uuid){
+    const u8=String(uuid).slice(0,8).toLowerCase();
+    for(const [n,f] of entries){ if(base(n).toLowerCase().includes('__'+u8)) return objUrl(f); }
+    for(const [n,f] of entries){ if(base(n).toLowerCase().includes(u8)) return objUrl(f); }
+  }
+  // 3) 同名主干 + 任意后缀(stem__xxx.ext)
+  if(filename){
+    const fn=String(filename); const dot=fn.lastIndexOf('.');
+    const stem=(dot>0?fn.slice(0,dot):fn).toLowerCase();
+    const ext=(dot>0?fn.slice(dot):'').toLowerCase();
+    for(const [n,f] of entries){
+      const b=base(n).toLowerCase();
+      if(b===stem+ext) return objUrl(f);
+      if(b.startsWith(stem+'__') && (!ext||b.endsWith(ext))) return objUrl(f);
+    }
+  }
   return null;
 }
 const DL_ICON='<svg class="cdl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12M7 11l5 4 5-4M5 21h14" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -681,7 +702,8 @@ function blobUrlFor(text,key){
 }
 function makeChip(obj, conv){
   const name = obj.file_name || obj.file_uuid || '文件';
-  const url = resolveAsset(conv, obj.file_name);
+  const uuid = obj.file_uuid || obj.uuid || null;
+  const url = resolveAsset(conv, obj.file_name, uuid);
   // 图片:内嵌预览 + 点击可下载
   if(url && /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(name)){
     const a=ce('a','chip chip-img'); a.href=url; a.download=name;
@@ -690,9 +712,12 @@ function makeChip(obj, conv){
     a.appendChild(cap);
     return a;
   }
-  // 有实际文件:下载
+  // 有实际文件:可查看的(pdf/html/txt/json/csv/md)新标签打开,其余触发下载
   if(url){
-    const a=ce('a','chip'); a.href=url; a.download=name;
+    const viewable=/\.(pdf|html?|txt|json|csv|md|svg)$/i.test(name);
+    const a=ce('a','chip'); a.href=url;
+    if(viewable){ a.target='_blank'; a.rel='noopener'; } else { a.download=name; }
+    a.title = viewable ? '点击在新标签打开 · 右键可下载' : '点击下载';
     a.innerHTML=FILE_ICON+'<span class="cname">'+esc(name)+'</span>'+DL_ICON;
     return a;
   }

@@ -104,5 +104,14 @@ document.addEventListener('DOMContentLoaded', () => {
     else toast('err', r?.error || '导出失败');
   });
 
+  $('btnViewer').addEventListener('click', () => {
+    try {
+      chrome.tabs.create({ url: chrome.runtime.getURL('viewer.html') });
+      window.close();
+    } catch (e) {
+      toast('err', '无法打开查看器');
+    }
+  });
+
   refresh();
 });

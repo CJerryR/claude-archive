@@ -102,8 +102,9 @@ async function saveB64(path, b64, mime = 'application/octet-stream') {
 }
 
 // ---------------- 找一个 claude.ai 标签页(代理带凭证抓取) ----------------
+const CLAUDE_TAB_GLOBS = ['https://claude.ai/*', 'https://*.claude.ai/*', 'https://claude.hk.cn/*'];
 async function findTab() {
-  const tabs = await chrome.tabs.query({ url: ['https://claude.ai/*', 'https://*.claude.ai/*'] });
+  const tabs = await chrome.tabs.query({ url: CLAUDE_TAB_GLOBS });
   const active = tabs.find(t => t.active) || tabs[0];
   return active?.id ?? null;
 }

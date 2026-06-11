@@ -237,11 +237,15 @@
         导出索引
       </button>
     </div>
+    <button class="act" id="btnViewer">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 18v3M16 18v3M7 21h10" stroke-linecap="round"/></svg>
+      打开本地查看器(仿 Claude 网页)
+    </button>
   </div>
 
   <div class="foot">
     文件保存在浏览器下载目录的 <code>ClaudeArchive/</code> 下,每个对话一个子文件夹,内含 <code>conversation.md</code>、<code>conversation.json</code> 与 <code>files/</code>。<br>
-    历史旧对话:打开它,等加载完成后点「保存当前对话」即可。
+    点「打开本地查看器」可用仿 Claude 网页版的界面浏览存档。历史旧对话:打开它,等加载完成后点「保存当前对话」。
   </div>
 
   <script src="popup.js"></script>

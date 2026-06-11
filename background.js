@@ -34,12 +34,31 @@ const DEFAULT_SETTINGS = {
   saveAssets: true,     // 下载文件(上传/生成)
   keepStream: false,    // 保留原始 SSE 事件流
   refetchFull: true,    // 完成后用全参数补全抓取(确保 thinking/tool 完整)
-  keepHistory: true     // 保留每次抓取的 JSON 历史快照(便于多版本合并)
+  keepHistory: true,    // 保留每次抓取的 JSON 历史快照(便于多版本合并)
+  debugLog: false       // 调试日志:在 Service Worker 控制台打印「追踪→保存」每一步
 };
 
 // 内存态:convId -> { orgId, data, full, lastRequest, lastStream, name, savedSig }
 const state = new Map();
 const timers = new Map();
+
+// ---------------- 运行日志 ----------------
+// 既打印到控制台,也写入 chrome.storage.local 的环形缓冲(最近 300 条),供弹窗"查看日志"导出
+let _logCache = null;
+async function logLine(stage, msg, extra) {
+  let on = false;
+  try { const { settings } = await chrome.storage.local.get('settings'); on = !!(settings && settings.debugLog); } catch {}
+  const line = { t: Date.now(), stage, msg, ...(extra ? { extra } : {}) };
+  // 控制台(开了 debugLog 才打,避免噪音)
+  if (on) { try { console.log(`[CCA ${stage}] ${msg}`, extra != null ? extra : ''); } catch {} }
+  // 环形缓冲(始终记录,方便事后排查;只留最近 300 条)
+  try {
+    if (!_logCache) _logCache = (await chrome.storage.local.get('runlog')).runlog || [];
+    _logCache.push(line);
+    if (_logCache.length > 300) _logCache = _logCache.slice(-300);
+    await chrome.storage.local.set({ runlog: _logCache });
+  } catch {}
+}
 
 // ---------------- 设置 ----------------
 async function getSettings() {
@@ -237,9 +256,9 @@ async function archiveById(convId, { force = true } = {}) {
 
 async function archive(convId, { force = false } = {}) {
   const st = state.get(convId);
-  if (!st || !st.data) return { ok: false, error: 'no state' };
+  if (!st || !st.data) { logLine('archive', `跳过:内存中没有「${convId}」的数据(可能未捕获,试着刷新该对话页面)`, { convId }); return { ok: false, error: 'no state' }; }
   const settings = await getSettings();
-  if (!settings.enabled) return { ok: false, error: 'disabled' };
+  if (!settings.enabled) { logLine('archive', '跳过:扩展总开关已关闭'); return { ok: false, error: 'disabled' }; }
 
   const conv = { uuid: convId, orgId: st.orgId, data: st.data, full: st.full, origin: st.origin,
                  lastRequest: st.lastRequest, lastStream: st.lastStream };
@@ -247,7 +266,9 @@ async function archive(convId, { force = false } = {}) {
   // 去重:活动分支结构 + 消息数 + leaf 变化才重写
   const { path } = activePath(st.data);
   const sig = `${st.data?.updated_at || ''}|${path.length}|${st.data?.current_leaf_message_uuid || ''}|${st.full ? 'F' : 'P'}`;
-  if (!force && st.savedSig === sig) return { ok: true, skipped: true };
+  if (!force && st.savedSig === sig) { logLine('archive', `跳过:「${st.name || convId}」内容未变化(已是最新)`, { convId }); return { ok: true, skipped: true }; }
+
+  logLine('archive', `开始保存「${st.name || convId}」${force ? '(强制)' : ''}…`, { convId });
 
   const dir = dirFor(conv);
   const base = `${ROOT}/${dir}`;
@@ -384,6 +405,7 @@ async function archive(convId, { force = false } = {}) {
     setTimeout(() => chrome.action.setBadgeText({ text: '' }), 1800);
   } catch {}
 
+  logLine('archive', `已保存「${st.data?.name || convId}」· ${fileCount} 个文件`, { convId, files: fileCount });
   return { ok: r1.ok || r2.ok, files: fileCount, dir };
 }
 
@@ -422,7 +444,7 @@ async function onCapture(type, p) {
 
   if (type === 'conversation') {
     const convId = p.data?.uuid || idFromUrl(p.url);
-    if (!convId) return;
+    if (!convId) { logLine('capture', '收到 conversation 但无法识别 convId,跳过', { url: p.url }); return; }
     const st = state.get(convId) || {};
     st.orgId = p.orgId || st.orgId;
     st.data = p.data;
@@ -430,6 +452,7 @@ async function onCapture(type, p) {
     st.name = p.data?.name;
     try { if (p.url && /^https?:\/\//i.test(p.url)) st.origin = new URL(p.url).origin; } catch {}
     state.set(convId, st);
+    logLine('capture', `已捕获并追踪「${st.name || convId}」(${(p.data?.chat_messages || []).length} 条消息${st.full ? ',完整版' : ''})`, { convId });
     scheduleArchive(convId);
     return;
   }
@@ -568,6 +591,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const json = JSON.stringify(index || {}, null, 2);
       const r = await saveText(`${ROOT}/_index.json`, json, 'application/json');
       sendResponse(r);
+    })();
+    return true;
+  }
+
+  if (msg.kind === 'popup:exportLog') {
+    (async () => {
+      const { runlog } = await chrome.storage.local.get('runlog');
+      const lines = runlog || [];
+      if (!lines.length) return sendResponse({ ok: false, error: '暂无运行日志(先开启「调试日志」并复现一次)' });
+      const text = lines.map(l => {
+        const ts = new Date(l.t).toISOString().replace('T', ' ').slice(0, 19);
+        const ex = l.extra != null ? '  ' + JSON.stringify(l.extra) : '';
+        return `[${ts}] [${l.stage}] ${l.msg}${ex}`;
+      }).join('\n');
+      const r = await saveText(`${ROOT}/_runlog.txt`, text, 'text/plain');
+      sendResponse(r.ok ? { ok: true, count: lines.length } : r);
     })();
     return true;
   }

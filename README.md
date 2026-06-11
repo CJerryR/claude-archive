@@ -1,158 +1,122 @@
-# Claude Archive — 本地存档 Claude 完整聊天记录 + 仿网页版查看器
+<div align="center">
 
-一个 Chrome / Edge 浏览器扩展。你正常用 Claude 时,它在后台**自动**把对话存到本地,并附带一个**长得和 Claude 网页版一样的本地查看器**用来浏览这些记录。
+# Claude Archive Suite
 
-捕获内容:
-- ✅ 完整对话文本(用户 + Claude)
-- ✅ **思考过程(thinking)**
-- ✅ **工具调用链**(调用参数 + 返回结果,如 web_search、create_file、bash 等)
-- ✅ 你上传的文件 / 附件
-- ✅ Claude 生成给你的文件
-- ✅ 同时输出**可读的 Markdown** 和**结构化 JSON**
+**把 Claude.ai / 镜像站的对话完整、本地化地存下来 —— 含思考链、工具调用、上传与生成的文件,并用「仿 Claude 网页版」的本地查看器离线浏览。**
 
-**支持中转镜像站**:除官方 `claude.ai` 外,已内置支持 `claude.hk.cn`。镜像站前端与官方一致,所以捕获逻辑通用。若你的中转域名不同,见文末「换一个中转域名」。
+[![License: MIT](https://img.shields.io/badge/License-MIT-d97757.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-2.7.0-d97757.svg)](CHANGELOG.md)
+[![Manifest V3](https://img.shields.io/badge/Chrome%2FEdge-MV3-4285F4.svg)](https://developer.chrome.com/docs/extensions/mv3/intro/)
+[![No Build](https://img.shields.io/badge/build-none-success.svg)](#)
+[![Local Only](https://img.shields.io/badge/privacy-100%25%20local-2ea44f.svg)](#隐私)
 
----
+[功能](#功能) · [安装](#安装) · [使用](#使用) · [目录结构](#存档目录结构) · [更新日志](CHANGELOG.md) · [贡献](CONTRIBUTING.md)
 
-## 一、安装扩展(3 分钟)
-
-> 未上架商店,用「开发者模式」本地加载,完全在你电脑上运行。
-
-1. 解压得到 `claude-archive` 文件夹(含 `manifest.json` 的那个)。
-2. 浏览器地址栏打开:
-   - Chrome → `chrome://extensions`
-   - Edge → `edge://extensions`
-3. 打开 **「开发者模式 / Developer mode」**。
-4. 点 **「加载已解压的扩展程序 / Load unpacked」**,选 `claude-archive` 文件夹。
-5. 工具栏出现赤陶色星芒图标即成功,建议点图钉固定。
+</div>
 
 ---
 
-## 二、自动存档
+## 简介
 
-打开扩展弹窗,确认「实时存档」为绿色开启即可。之后**正常聊天**,每次对话更新会在停顿约 2.5 秒后自动写盘;回复结束后会再自动重抓一次,确保思考链和工具调用完整。
+Claude Archive Suite 是一套**纯本地运行**的工具,在你正常使用 Claude 时于后台自动归档对话:
 
-**保存历史旧对话**(自动存档只覆盖装好之后用的对话):
-1. 在 Claude 点开旧对话,等它**完全加载**。
-2. 打开弹窗,点 **「保存当前对话(全量)」**。
+- **浏览器扩展**（Chrome / Edge，Manifest V3）：实时捕获对话的完整文本、**思考过程**、**工具调用链**（参数 + 结果）、你上传的文件、Claude 生成的文件，导出为 **Markdown** 与 **JSON**。
+- **本地查看器**（单文件 `viewer.html`）：界面与 Claude 网页版一致，离线浏览全部存档，支持思考链展开、分支切换、公式渲染、代码高亮、统计页等。
+- **整理工具**：历史文件归类报告（只读）+ 给 Claude Code 的整理规则手册。
 
-弹窗开关:自动写盘 / 保存文件 / 全量补全抓取(建议开)/ 保留原始事件流(排错用)。
-
----
-
-## 三、本地查看器(仿 Claude 网页版)
-
-两种打开方式:
-- **扩展弹窗** → 点「打开本地查看器」,在新标签页打开。
-- **直接双击** `claude-archive/viewer.html`(或套件里 `本地查看器/viewer.html`)。
-
-打开后点左上 **「选择存档文件夹」**,选中你下载目录里的 **`ClaudeArchive`** 文件夹。它会:
-- 左栏按日期分组列出全部对话,可搜索;
-- 点开任意对话,以 Claude 网页版的样式渲染:衬线正文、**思考过程/工具调用为可折叠块**、表格/代码高亮、附件与生成文件显示为卡片(图片直接内嵌预览);
-- 右上角可切换深色 / 浅色主题。
-
-> 查看器纯本地运行,不联网、不上传。读取的是文件夹里的 `conversation.json`。
+> 官方导出不含思考链与工具调用；本工具用全参数抓取（`render_all_tools=true`）补全这些内容。
 
 ---
 
-## 四、文件存在哪
+## 功能
 
-全部在浏览器**下载目录**下:
-
-```
-下载/
-└── ClaudeArchive/
-    ├── _index.json                     ← 所有对话目录(点"导出索引"生成)
-    ├── 对话标题__a1b2c3d4/
-    │   ├── conversation.md             ← 可读版(思考/工具折叠块)
-    │   ├── conversation.json           ← 完整结构化数据(查看器读这个)
-    │   └── files/                      ← 上传的 + 生成的文件
-    └── 另一个对话__e5f6.../
-        └── ...
-```
-
----
-
-## 五、原理 & 重要限制(请读)
-
-**原理**:扩展在页面层包裹 `fetch`,当网站加载对话或你发消息时,把返回的完整数据(含 thinking、tool_use、tool_result)截下来;并用 `render_all_tools=true&tree=True` 重新请求一次,拿到官方导出**不含**的完整工具链与全部分支。
-
-**限制**:
-1. **依赖前端接口格式**。官方若大改接口,扩展可能需更新。
-2. **自动存档只对"之后"的对话生效**;历史对话需逐个打开手动保存。
-3. **分支**:你编辑过消息会产生多分支,Markdown 与查看器只显示**当前激活路径**;`conversation.json` 里保留**全部分支**。
-4. **大文件**:单文件超 48 MB 会跳过。
-5. 个人备份工具,请遵守服务条款,数据仅自用。
-
-
-
-## 文件下载的两类接口(技术说明)
-
-Claude 的对话文件分两类,下载走**不同接口**,扩展都已覆盖:
-1. **图片**(`file_kind: image`):走 `/api/{org}/files/{uuid}/preview`(及 original/contents 等候选)。
-2. **其它文件**(`file_kind: blob`,如 docx / json / md / zip,带 `path` 字段):走
-   `/api/organizations/{org}/conversations/{convId}/wiggle/download-file?path={文件路径}`。
-
-早期版本只处理了第一类,导致"只有图片能下、文档/代码下不了"。现已同时支持。
+| 能力 | 说明 |
+|------|------|
+| 完整捕获 | 用户与 Claude 的全部文本、思考链、工具调用参数与结果 |
+| 文件归档 | 上传文件、附件、Claude 生成的文件（按内容指纹版本化，去重保存） |
+| 双格式 | 同时输出可读 Markdown 与结构化 JSON |
+| 仿真查看器 | 暗/亮主题、思考链时间线、分支切换、KaTeX 公式、VSCode 风格代码高亮、一键复制 |
+| 多版本合并 | 同一对话多份 JSON / 历史快照自动按 uuid 合并去重 |
+| 实时自动保存 | 回复结束即归档；已存文件不重复下载、不弹"替换"框 |
+| 批量与体检 | 全部下载、检查保存完整性（补下缺失文件） |
+| 统计页 | 消息数、字数、累计思考时长、工具排行、活跃日期等 |
+| 调试日志 | 可开关，定位"对话追踪不上"等问题 |
+| 镜像站支持 | `claude.ai`、`*.claude.ai`、`claude.hk.cn` |
 
 ---
 
+## 安装
 
+> 未上架商店，使用「开发者模式」本地加载，完全在你电脑上运行。
 
-## 目录结构(按内容版本去重,不再产生重复副本)
+1. 下载本仓库（`Code → Download ZIP`，或 `git clone`）。
+2. 浏览器打开扩展页：Chrome → `chrome://extensions`；Edge → `edge://extensions`。
+3. 打开 **开发者模式 / Developer mode**。
+4. 点 **加载已解压的扩展程序 / Load unpacked**，选择含 `manifest.json` 的扩展目录。
+5. 工具栏出现图标即成功，建议固定。
 
-每个对话一个顶层目录;该对话所有产出文件放在 `files/{对话码}/` 下,
-**按文件内容指纹版本化**:同名文件只有内容真的变了才存新版本(`__v2`、`__v3`…),
-内容相同的轮次不会重复保存。
+**本地查看器**：直接用浏览器打开 `viewer.html`，点「选择存档文件夹」选中下载目录里的 `ClaudeArchive`。
+
+---
+
+## 使用
+
+1. 安装后正常使用 Claude，扩展会在后台自动捕获并保存当前对话。
+2. 点扩展图标可见控制台：开关各项设置、保存当前/全部对话、检查完整性、打开查看器。
+3. 历史旧对话：在 Claude 里打开它（必要时 **F5 刷新**触发抓取），再点「保存当前对话」。
+
+> **为何要刷新**：扩展靠拦截页面发出的对话请求来捕获；若对话已被前端缓存（未发请求）就抓不到，刷新会强制重新请求。开启「调试日志」可确认卡在哪一步。
+
+---
+
+## 存档目录结构
 
 ```
 ClaudeArchive/
-  {对话名}__{uuid8}/
-    conversation.json
-    conversation.md
-    history/                          # 每次抓取的带时间戳 JSON 快照(自动合并用)
+  _index.json                     # 全局对话索引
+  <对话名>__<uuid8>/
+    conversation.json             # 结构化（含所有分支）
+    conversation.md               # 可读（仅活动分支）
+    history/                      # 带时间戳的历史快照（自动合并用）
     files/
-      {对话码}/                        # = 对话 uuid 前 8 位
-        viewer.html                   # 第 1 个版本(原名)
-        viewer__v2.html               # 内容变化后的第 2 个版本
-        viewer__v3.html               # 第 3 个版本 …
-        claude-archive-suite.zip
-        claude-archive-suite__v2.zip
-        1781..._image.webp            # 图片、上传文件也在这里
-        attachment.txt
+      <对话码>/                    # = 对话 uuid 前 8 位
+        viewer.html               # 产出文件第 1 版
+        viewer__v2.html           # 内容变化后的新版本
+        <图片>.webp / <上传文件>
 ```
 
-工作原理与要点:
-- **只存真正不同的版本**:某文件在 11 轮里出现、但内容只变过 3 次 → 只保存 3 个版本(v1/v2/v3),
-  不会得到 11 个一模一样的副本。靠 SHA-256 内容指纹判断。
-- **重要限制**:Claude 容器里每个产出文件路径固定,服务器**只保留该路径的当前最新版本**。
-  所以历史旧版本只能在它**产生的当下**(扩展实时自动保存、那一刻文件还在)被抓到;
-  事后再点"保存对话",旧版本已被覆盖、无法找回——这是服务端限制,任何工具都绕不过。
-  ➜ 想完整留住每个版本,请保持扩展开启、自动保存打开,让它在每轮产出时即时存档。
-- **不重复下载**:已下载且磁盘仍在的文件,下载前用 `chrome.downloads.search` 查到后直接跳过,
-  既不重抓也不触发"替换吗"弹窗。
-- **图片格式**:按服务器返回类型保存(预览是 webp 就存 `.webp`;原始 PNG 服务器不提供)。
-- 跟踪记录、版本表、下载进度、统计都存在浏览器本地(`chrome.storage.local`),更新扩展版本后保留。
-
-> 兼容性:查看器仍能打开历史上各版本布局(平铺 / 对话码 / 轮次目录),老存档不必整理也能正常浏览。
-
-## 六、故障排查
-
-| 现象 | 处理 |
-|---|---|
-| 点保存提示「没有打开的 Claude 标签页」 | 先打开站点并登录,保持标签页 |
-| 旧对话保存失败 | 确认对话已**完全加载**再点保存 |
-| 查看器选了文件夹没内容 | 必须选 **ClaudeArchive 这一层**(里面是各对话子文件夹) |
-| 文件没下载 | 检查「保存文件」已开;部分受限资源可能抓不到 |
-| 弹窗「无法连接后台」 | 扩展页点该扩展「重新加载」 |
-| 一直弹下载询问框 | 浏览器设置关掉「下载前询问保存位置」 |
+文件按 **SHA-256 内容指纹**版本化：同一文件多轮出现但内容只变 N 次，仅保存 N 个版本，不产生重复副本。详见 [CHANGELOG](CHANGELOG.md) 与 `整理手册_给ClaudeCode.md`。
 
 ---
 
-## 七、换一个中转域名
+## 技术栈
 
-如果你的中转站不是 `claude.hk.cn`:用文本编辑器打开 `claude-archive/manifest.json`,把出现 `claude.hk.cn` 的三处(`host_permissions`、两个 `content_scripts.matches`、`web_accessible_resources.matches`)替换成你的域名(保留 `https://` 和结尾 `/*`),再到扩展页点「重新加载」。`background.js` 里 `CLAUDE_TAB_GLOBS` 也同步加一行即可。
+- **扩展**：Manifest V3 —— Service Worker、双世界内容脚本（MAIN 拦截 `fetch`/`XHR`、ISOLATED 桥接）、Offscreen Document。
+- **语言**：原生 JavaScript（ES Modules）、HTML、CSS，**无构建步骤、无前端框架**。
+- **Web API**：`chrome.downloads` / `storage.local` / `tabs`、`crypto.subtle`（SHA-256）、文件夹读取。
+- **查看器**：单文件 HTML；KaTeX（CDN）渲染公式；自写 VSCode Dark+ 分词器做代码高亮。
 
 ---
 
-*本扩展与查看器全部在本地运行,不向任何第三方服务器发送你的数据。*
+## 隐私
+
+所有数据仅保存在你本机的浏览器下载目录，**不上传任何服务器**。扩展仅在 Claude 域名下运行，仅访问归档所需的对话与文件接口。
+
+---
+
+## 文档
+
+- [详细使用指南 docs/使用指南.md](docs/使用指南.md)
+- [更新日志 CHANGELOG.md](CHANGELOG.md)
+- [贡献指南 CONTRIBUTING.md](CONTRIBUTING.md)
+- [安全策略 SECURITY.md](SECURITY.md)
+- [行为准则 CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- [各版本发布说明 docs/releases/](docs/releases/)
+
+---
+
+## 许可
+
+[MIT](LICENSE) © 2026 CJerryR
+
+> 本项目与 Anthropic 无关，"Claude" 为 Anthropic 的商标。本工具仅用于帮助用户备份**自己**的对话数据。

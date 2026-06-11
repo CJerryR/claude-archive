@@ -70,6 +70,11 @@
 
 ### 🔧 改进（Changed）
 - `history/` 历史快照参与自动合并。
+## [1.7.0] - 2026-06-10
+
+### ✨ 新增（Added）
+- 新增抓取 Claude 生成的文件：从 `present_files` 工具结果的 `local_resource` 解析 `file_path`，经 wiggle 下载接口获取。
+- 查看器新增「Claude 生成的文件」分组，展示于消息末尾。
 
 ---
 

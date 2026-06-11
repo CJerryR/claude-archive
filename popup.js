@@ -4,7 +4,7 @@
 const $ = (id) => document.getElementById(id);
 const send = (m) => chrome.runtime.sendMessage(m);
 
-const TOGGLES = ['enabled', 'autoSave', 'saveAssets', 'refetchFull', 'keepStream'];
+const TOGGLES = ['enabled', 'autoSave', 'saveAssets', 'refetchFull', 'keepHistory', 'keepStream'];
 
 function toast(kind, text, hold = 2600) {
   const t = $('toast');

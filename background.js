@@ -1,7 +1,7 @@
 // background.js — service worker(module)
 // 状态机:接收捕获 → 合并会话状态 → 触发全参数补全抓取 → 防抖写盘(MD/JSON/资源)。
 import {
-  buildMarkdown, buildJson, dirFor, collectAssets, pickFileName, activePath, safeName
+  buildMarkdown, buildJson, dirFor, collectAssets, pickFileName, activePath, safeName, assignFileNames
 } from './exporter.js';
 
 const ROOT = 'ClaudeArchive';
@@ -12,7 +12,8 @@ const DEFAULT_SETTINGS = {
   autoSave: true,       // 捕获后自动写盘
   saveAssets: true,     // 下载文件(上传/生成)
   keepStream: false,    // 保留原始 SSE 事件流
-  refetchFull: true     // 完成后用全参数补全抓取(确保 thinking/tool 完整)
+  refetchFull: true,    // 完成后用全参数补全抓取(确保 thinking/tool 完整)
+  keepHistory: true     // 保留每次抓取的 JSON 历史快照(便于多版本合并)
 };
 
 // 内存态:convId -> { orgId, data, full, lastRequest, lastStream, name, savedSig }
@@ -143,46 +144,89 @@ async function archive(convId, { force = false } = {}) {
   const md = buildMarkdown(conv);
   const json = buildJson(conv);
 
+  // canonical:始终保持最新(覆盖)
   const r1 = await saveText(`${base}/conversation.md`, md, 'text/markdown');
   const r2 = await saveText(`${base}/conversation.json`, json, 'application/json');
+
+  // 历史快照:把这次的 JSON 另存一份带时间戳到 history/,内容变化才存(便于多版本合并去重)
+  if (settings.keepHistory !== false) {
+    try {
+      const histKey = `hist_sig_${convId}`;
+      const lastSig = (await chrome.storage.local.get(histKey))[histKey];
+      const curSig = `${st.data?.updated_at || ''}|${(st.data?.chat_messages || []).length}|${st.data?.current_leaf_message_uuid || ''}`;
+      if (lastSig !== curSig) {
+        const ts = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
+        const upd = (st.data?.updated_at || '').replace(/[:.]/g, '-').slice(0, 19) || ts;
+        await saveText(`${base}/history/conversation_${upd}.json`, json, 'application/json');
+        await chrome.storage.local.set({ [histKey]: curSig });
+      }
+    } catch {}
+  }
 
   // 资源
   let fileCount = 0;
   if (settings.saveAssets) {
-    const usedNames = new Set();
-    const uniqName = (nm) => {
-      if (!usedNames.has(nm)) { usedNames.add(nm); return nm; }
-      const dot = nm.lastIndexOf('.');
-      const k = usedNames.size;
-      const out = dot > 0 ? `${nm.slice(0, dot)}_${k}${nm.slice(dot)}` : `${nm}_${k}`;
-      usedNames.add(out);
-      return out;
-    };
+    // 已保存文件记录(按对话持久化),用于增量、不覆盖历史
+    const savedKey = `saved_files_${convId}`;
+    const savedRec = (await chrome.storage.local.get(savedKey))[savedKey] || {}; // uuid/path -> finalName
+    const savedNames = new Set(Object.values(savedRec));
 
-    // 1) URL 资源(图片、生成文件、可下载的附件)
     const tabId = await findTab();
     if (tabId != null) {
-      const assets = collectAssets(st.data, st.orgId, convId);
-      for (const [url, suggested] of assets) {
-        const resp = await askTab(tabId, { kind: 'fetchAsset', url });
-        if (!resp || !resp.ok) continue;
-        const name = uniqName(pickFileName(resp.cd, suggested, url, resp.ct));
-        const dl = await saveB64(`${base}/files/${name}`, resp.b64, (resp.ct || '').split(';')[0]);
-        if (dl.ok) fileCount++;
-      }
-    }
+      const assets = collectAssets(st.data, st.orgId, convId); // [{path,name,uuid}]
+      // 确定性命名:同 uuid 同名只一份;不同文件同名加 __uuid8 区分
+      const nameMap = assignFileNames(assets, (a) => pickFileName('', a.name, a.path, ''));
 
-    // 2) 文本附件兜底:上传的文档常只有 extracted_content(无可下载 URL),存成 .txt 不丢内容
-    for (const m of (st.data.chat_messages || [])) {
-      for (const a of (m.attachments || [])) {
-        if (a && typeof a.extracted_content === 'string' && a.extracted_content.trim()) {
-          const stem = safeName(String(a.file_name || 'attachment').replace(/\.[^.]+$/, ''), 70) || 'attachment';
-          const name = uniqName(stem + '.txt');
-          const dl = await saveText(`${base}/files/${name}`, a.extracted_content, 'text/plain');
-          if (dl.ok) fileCount++;
+      // 为避免与历史已存名字冲突,做二次保护
+      const ensureUnique = (nm, idKey) => {
+        if (savedRec[idKey]) return savedRec[idKey]; // 该文件之前存过,沿用原名
+        if (!savedNames.has(nm)) return nm;
+        const dot = nm.lastIndexOf('.');
+        const stem = dot > 0 ? nm.slice(0, dot) : nm;
+        const ext = dot > 0 ? nm.slice(dot) : '';
+        let k = 2, cand = `${stem}__${k}${ext}`;
+        while (savedNames.has(cand)) { k++; cand = `${stem}__${k}${ext}`; }
+        return cand;
+      };
+
+      for (const a of assets) {
+        const idKey = a.uuid || a.path;        // 文件身份
+        // 增量:这个文件之前已成功保存过 → 跳过(不重抓、不覆盖历史)
+        if (savedRec[idKey]) continue;
+
+        const resp = await askTab(tabId, { kind: 'fetchAsset', url: a.path });
+        if (!resp || !resp.ok) continue;
+
+        let finalName = nameMap.get(a.path) || pickFileName(resp.cd, a.name, a.path, resp.ct);
+        // 若推断名没扩展名,用响应 content-type 补
+        finalName = pickFileName(resp.cd, finalName, a.path, resp.ct);
+        finalName = ensureUnique(finalName, idKey);
+
+        const dl = await saveB64(`${base}/files/${finalName}`, resp.b64, (resp.ct || '').split(';')[0]);
+        if (dl.ok) {
+          fileCount++;
+          savedRec[idKey] = finalName;
+          savedNames.add(finalName);
         }
       }
     }
+
+    // 文本附件兜底:上传文档只有 extracted_content(无 URL)→ 存 .txt(也走增量)
+    for (const m of (st.data.chat_messages || [])) {
+      for (const a of (m.attachments || [])) {
+        if (a && typeof a.extracted_content === 'string' && a.extracted_content.trim()) {
+          const idKey = 'att_' + (a.id || a.file_uuid || (a.file_name + ':' + a.file_size));
+          if (savedRec[idKey]) continue;
+          const stem = safeName(String(a.file_name || 'attachment').replace(/\.[^.]+$/, ''), 70) || 'attachment';
+          let nm = stem + '.txt';
+          if (savedNames.has(nm)) { let k = 2; while (savedNames.has(`${stem}__${k}.txt`)) k++; nm = `${stem}__${k}.txt`; }
+          const dl = await saveText(`${base}/files/${nm}`, a.extracted_content, 'text/plain');
+          if (dl.ok) { fileCount++; savedRec[idKey] = nm; savedNames.add(nm); }
+        }
+      }
+    }
+
+    await chrome.storage.local.set({ [savedKey]: savedRec });
   }
 
   st.savedSig = sig;

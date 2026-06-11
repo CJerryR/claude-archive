@@ -50,18 +50,17 @@ function assetCandidates(input) {
   const out = [];
   const push = (p) => { const full = location.origin + p; if (!out.includes(full)) out.push(full); };
 
-  // 文件型:/api/.../files/{uuid}/{variant}  → 依次尝试原图/下载/preview
-  const fm = path.match(/^(.*\/files\/[0-9a-f-]{36})(?:\/(\w+))?(\?.*)?$/i);
+  // 文件型:/api/.../files/{uuid}/{variant}  → 优先原始 variant,再补全质量/文档/下载/preview
+  const fm = path.match(/^(.*\/files\/[0-9a-f-]{36})(?:\/([\w-]+))?(\?.*)?$/i);
   if (fm) {
     const base = fm[1];
     const q = fm[3] || '';
-    // 全质量优先,preview 兜底(thumbnail 不要)
-    for (const v of ['', '/original', '/full', '/contents', '/download', '/preview']) {
+    const orig = fm[2] ? fm[2].toLowerCase() : '';
+    // 1) 先用 JSON 里给的原始 variant(若不是 thumbnail/preview 这种缩略)——最可能就是对的
+    if (orig && orig !== 'thumbnail') push(base + '/' + fm[2] + q);
+    // 2) 全质量 / 文档类 / 下载 候选(覆盖 PDF=document_pdf、其它类型各自 variant)
+    for (const v of ['', '/original', '/full', '/document', '/document_pdf', '/contents', '/download', '/file', '/raw', '/preview']) {
       push(base + v + q);
-    }
-    // 同时保留原始传入的 variant(若不是上面列出的)
-    if (fm[2] && !['original','full','contents','download','preview','thumbnail'].includes(fm[2].toLowerCase())) {
-      push(base + '/' + fm[2] + q);
     }
     return out;
   }

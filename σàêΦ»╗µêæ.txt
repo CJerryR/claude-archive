@@ -1,0 +1,18 @@
+Claude Archive 套件
+====================
+
+里面有两样东西:
+
+1) claude-archive/        —— 浏览器扩展(插件)
+   安装:Chrome 打开 chrome://extensions(Edge 是 edge://extensions)→
+   开启右上「开发者模式」→ 点「加载已解压的扩展程序」→ 选这个 claude-archive 文件夹。
+   装好后正常聊天即自动把对话存到「下载/ClaudeArchive/」。
+
+2) 本地查看器/viewer.html  —— 仿 Claude 网页版的本地查看器
+   直接双击用浏览器打开,点「选择存档文件夹」选中「下载/ClaudeArchive」即可浏览。
+   (装了扩展的话,也可以在扩展弹窗点「打开本地查看器」)
+
+详细说明见 claude-archive/README.md。
+
+支持官方 claude.ai 和中转站 claude.hk.cn;换别的中转域名见 README 第七节。
+全部本地运行,不上传任何数据。

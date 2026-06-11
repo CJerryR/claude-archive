@@ -1,0 +1,28 @@
+# 依赖 / 构建（本项目无构建，但防止误提交）
+node_modules/
+dist/
+build/
+*.zip
+
+# 打包产物
+claude-archive-suite.zip
+suite/
+
+# 用户实际存档（绝不应提交他人对话数据）
+ClaudeArchive/
+_runlog.txt
+_index.json
+
+# 操作系统 / 编辑器
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+*.log
+
+# 临时
+/tmp/
+*.crdownload
+~$*

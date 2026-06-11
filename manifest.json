@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "Claude Archive — 完整聊天记录本地存档",
+  "version": "2.8.0",
+  "description": "实时捕获 Claude 对话(含思考过程、工具调用链、上传与生成的文件),自动保存为 Markdown + JSON,并内置仿 Claude 网页版的本地查看器。支持 claude.ai 及中转镜像站。",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "unlimitedStorage", "downloads", "offscreen", "tabs"],
+  "host_permissions": [
+    "https://claude.ai/*",
+    "https://*.claude.ai/*",
+    "https://claude.hk.cn/*"
+  ],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "content_scripts": [
+    {
+      "matches": ["https://claude.ai/*", "https://*.claude.ai/*", "https://claude.hk.cn/*"],
+      "js": ["interceptor.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://claude.ai/*", "https://*.claude.ai/*", "https://claude.hk.cn/*"],
+      "js": ["bridge.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["viewer.html"],
+      "matches": ["https://claude.ai/*", "https://*.claude.ai/*", "https://claude.hk.cn/*"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Claude Archive",
+    "default_icon": { "16": "icons/16.png", "48": "icons/48.png" }
+  },
+  "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" }
+}

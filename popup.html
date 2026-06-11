@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #1a1815;
+    --panel: #221f1b;
+    --panel-2: #2a2621;
+    --line: #38332c;
+    --ink: #ece7df;
+    --ink-dim: #a39b8d;
+    --ink-faint: #6f685c;
+    --accent: #d97a57;
+    --accent-deep: #b85f3e;
+    --ok: #7fae6f;
+    --warn: #d4a14e;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 360px; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .head {
+    display: flex; align-items: center; gap: 9px;
+    padding: 14px 16px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .spark {
+    width: 22px; height: 22px; flex: none;
+    color: var(--accent);
+  }
+  .head h1 {
+    font-size: 14px; font-weight: 650; letter-spacing: .2px;
+  }
+  .head .sub {
+    font-family: var(--mono); font-size: 10px; color: var(--ink-faint);
+    margin-left: auto; letter-spacing: .5px;
+  }
+
+  .master {
+    display: flex; align-items: center; gap: 10px;
+    margin: 12px 16px;
+    padding: 11px 13px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  .master .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ink-faint); flex: none; }
+  .master.on .dot { background: var(--ok); box-shadow: 0 0 0 3px rgba(127,174,111,.18); }
+  .master .label { font-weight: 600; }
+  .master .state { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); }
+
+  /* 开关 */
+  .sw {
+    position: relative; width: 38px; height: 22px; flex: none;
+    margin-left: auto; cursor: pointer;
+  }
+  .sw input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+  .sw .track {
+    position: absolute; inset: 0; border-radius: 999px;
+    background: var(--panel-2); border: 1px solid var(--line);
+    transition: background .16s, border-color .16s;
+  }
+  .sw .knob {
+    position: absolute; top: 2px; left: 2px;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--ink-dim);
+    transition: transform .16s, background .16s;
+  }
+  .sw input:checked ~ .track { background: var(--accent-deep); border-color: var(--accent); }
+  .sw input:checked ~ .knob { transform: translateX(16px); background: #fff; }
+
+  .stats {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px; margin: 0 16px 12px;
+  }
+  .stat {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 9px; padding: 9px 10px; text-align: center;
+  }
+  .stat .n { font-family: var(--mono); font-size: 18px; font-weight: 600; color: var(--accent); line-height: 1.1; }
+  .stat .k { font-size: 10px; color: var(--ink-faint); margin-top: 3px; letter-spacing: .3px; }
+  .progress-list{ margin:0 16px 12px; display:flex; flex-direction:column; gap:8px; max-height:180px; overflow:auto; }
+  .prog-empty{ font-size:11.5px; color:var(--ink-faint); padding:8px 2px; line-height:1.5; }
+  .prog-item{ background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:8px 11px; }
+  .prog-top{ display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px; }
+  .prog-name{ font-size:12px; color:var(--ink); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .prog-cnt{ font-family:var(--mono); font-size:11px; color:var(--ink-mut); flex:none; }
+  .prog-bar{ height:6px; background:var(--bg); border-radius:4px; overflow:hidden; }
+  .prog-bar > i{ display:block; height:100%; background:var(--accent); border-radius:4px; transition:width .3s; }
+  .prog-item.done .prog-bar > i{ background:#3a9d5c; }
+  .prog-item.done .prog-cnt{ color:#3a9d5c; }
+
+  .current {
+    margin: 0 16px 12px; padding: 10px 12px;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 9px;
+  }
+  .current .row { display: flex; align-items: center; gap: 7px; }
+  .current .pill {
+    font-family: var(--mono); font-size: 9px; padding: 2px 6px;
+    border-radius: 5px; letter-spacing: .4px; flex: none;
+  }
+  .pill.live { background: rgba(127,174,111,.16); color: var(--ok); }
+  .pill.idle { background: rgba(111,104,92,.18); color: var(--ink-dim); }
+  .current .name {
+    font-size: 12px; color: var(--ink); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .current .meta { font-size: 10px; color: var(--ink-faint); margin-top: 3px; }
+
+  .section-t {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--ink-faint); margin: 4px 16px 6px; font-weight: 600;
+  }
+
+  .opts { margin: 0 16px 12px; }
+  .opt {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 9px 0; border-bottom: 1px solid var(--line);
+  }
+  .opt:last-child { border-bottom: 0; }
+  .opt .txt { flex: 1; }
+  .opt .t { font-size: 12px; font-weight: 550; }
+  .opt .d { font-size: 10.5px; color: var(--ink-faint); margin-top: 1px; }
+  .opt .sw { margin-left: 0; }
+
+  .actions { margin: 0 16px 14px; display: grid; gap: 8px; }
+  button.act {
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+    width: 100%; padding: 10px; border-radius: 9px; cursor: pointer;
+    font-family: var(--sans); font-size: 12.5px; font-weight: 600;
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--ink);
+    transition: background .14s, border-color .14s, transform .04s;
+  }
+  button.act:hover { background: var(--panel); border-color: var(--ink-faint); }
+  button.act:active { transform: translateY(1px); }
+  button.act.primary {
+    background: var(--accent-deep); border-color: var(--accent); color: #fff;
+  }
+  button.act.primary:hover { background: var(--accent); }
+  button.act svg { width: 15px; height: 15px; flex: none; }
+  .act-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .act-desc { font-size: 10.5px; color: var(--ink-faint); line-height: 1.45; margin: -2px 2px 8px; }
+  .alltask { margin: 4px 0 2px; padding: 9px 11px; border-radius: 8px; background: var(--panel);
+    border: 1px solid var(--line); font-size: 11.5px; color: var(--ink-mut); }
+  .alltask .at-cur { color: var(--ink); display:block; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .alltask .at-bar { height:6px; background: var(--bg); border-radius:4px; overflow:hidden; margin-top:6px; }
+  .alltask .at-bar > i { display:block; height:100%; background: var(--accent); border-radius:4px; transition: width .3s; }
+
+  .toast {
+    margin: 0 16px 14px; padding: 9px 12px; border-radius: 8px;
+    font-size: 11.5px; display: none; align-items: center; gap: 8px;
+  }
+  .toast.show { display: flex; }
+  .toast.ok { background: rgba(127,174,111,.12); color: var(--ok); border: 1px solid rgba(127,174,111,.3); }
+  .toast.err { background: rgba(212,77,77,.12); color: #e08a8a; border: 1px solid rgba(212,77,77,.3); }
+  .toast.run { background: rgba(217,122,87,.12); color: var(--accent); border: 1px solid rgba(217,122,87,.3); }
+
+  .foot {
+    padding: 10px 16px 14px; border-top: 1px solid var(--line);
+    font-size: 10.5px; color: var(--ink-faint); line-height: 1.55;
+  }
+  .foot code { font-family: var(--mono); color: var(--ink-dim); }
+  .foot a { color: var(--accent); text-decoration: none; cursor: pointer; }
+
+  .spin {
+    width: 13px; height: 13px; border: 2px solid currentColor;
+    border-right-color: transparent; border-radius: 50%;
+    animation: sp .6s linear infinite; flex: none;
+  }
+  @keyframes sp { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+  <div class="head">
+    <svg class="spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+      <path d="M12 2v20M2 12h20M5 5l14 14M19 5L5 19" stroke-linecap="round"/>
+    </svg>
+    <h1>Claude Archive</h1>
+    <span class="sub" id="ver">v1.0</span>
+  </div>
+
+  <div class="master" id="master">
+    <span class="dot"></span>
+    <div>
+      <div class="label">实时存档</div>
+      <div class="state" id="masterState">读取中…</div>
+    </div>
+    <label class="sw">
+      <input type="checkbox" id="enabled">
+      <span class="track"></span><span class="knob"></span>
+    </label>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n" id="sConv">–</div><div class="k">已存对话</div></div>
+    <div class="stat"><div class="n" id="sFile">–</div><div class="k">已存文件</div></div>
+    <div class="stat"><div class="n" id="sTrack">–</div><div class="k">已跟踪</div></div>
+  </div>
+
+  <div class="current" id="current" style="display:none">
+    <div class="row">
+      <span class="pill idle" id="curPill">—</span>
+      <span class="name" id="curName">—</span>
+    </div>
+    <div class="meta" id="curMeta"></div>
+  </div>
+
+  <div class="section-t">文件下载进度</div>
+  <div class="progress-list" id="progressList"><div class="prog-empty">暂无记录,开始抓取后这里显示每个对话的文件保存进度。</div></div>
+
+  <div class="section-t">捕获选项</div>
+  <div class="opts">
+    <div class="opt">
+      <div class="txt"><div class="t">自动写盘</div><div class="d">捕获后自动保存到下载目录</div></div>
+      <label class="sw"><input type="checkbox" id="autoSave"><span class="track"></span><span class="knob"></span></label>
+    </div>
+    <div class="opt">
+      <div class="txt"><div class="t">保存文件</div><div class="d">下载你上传的与 Claude 生成的文件</div></div>
+      <label class="sw"><input type="checkbox" id="saveAssets"><span class="track"></span><span class="knob"></span></label>
+    </div>
+    <div class="opt">
+      <div class="txt"><div class="t">全量补全抓取</div><div class="d">回复结束后重抓,确保思考链/工具完整</div></div>
+      <label class="sw"><input type="checkbox" id="refetchFull"><span class="track"></span><span class="knob"></span></label>
+    </div>
+    <div class="opt">
+      <div class="txt"><div class="t">保留历史快照</div><div class="d">每次抓取另存带时间戳 JSON,便于多版本合并</div></div>
+      <label class="sw"><input type="checkbox" id="keepHistory"><span class="track"></span><span class="knob"></span></label>
+    </div>
+    <div class="opt">
+      <div class="txt"><div class="t">保留原始事件流</div><div class="d">额外存 SSE 流(体积大,排错用)</div></div>
+      <label class="sw"><input type="checkbox" id="keepStream"><span class="track"></span><span class="knob"></span></label>
+    </div>
+    <div class="opt">
+      <div class="txt"><div class="t">静默下载</div><div class="d">下载完成后从浏览器下载记录移除(文件保留),不在下载栏刷屏</div></div>
+      <label class="sw"><input type="checkbox" id="silentDownload"><span class="track"></span><span class="knob"></span></label>
+    </div>
+    <div class="opt">
+      <div class="txt"><div class="t">调试日志</div><div class="d">在 Service Worker 控制台打印「追踪→保存」每一步,排查追踪不上的问题</div></div>
+      <label class="sw"><input type="checkbox" id="debugLog"><span class="track"></span><span class="knob"></span></label>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <div class="actions">
+    <button class="act primary" id="btnSaveCurrent" title="抓取你当前打开的这个对话(含完整思考链、工具调用、文件),保存到本地 ClaudeArchive">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      保存当前对话(全量)
+    </button>
+    <div class="act-desc">把正在看的这个对话完整存到本地(已存的文件会自动跳过)</div>
+
+    <button class="act" id="btnSaveAll" title="遍历本地已跟踪的全部对话,逐个加载并保存记录+文件;已存文件自动跳过">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      全部下载(所有已跟踪对话)
+    </button>
+    <div class="act-desc">把所有跟踪过的对话的记录和文件都下载一遍,缺啥补啥</div>
+
+    <button class="act" id="btnCheck" title="逐个检查已跟踪对话:对比应有文件与本地已存,自动补下缺失的文件">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 12l2 2 4-4M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      检查保存完整性(补下缺失文件)
+    </button>
+    <div class="act-desc">检查每个对话文件是否齐全,把漏掉的自动下载回来</div>
+
+    <div class="act-row">
+      <button class="act" id="btnIndex" title="把已跟踪对话清单导出成 _index.json(对话名、消息数、更新时间)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h10" stroke-linecap="round"/></svg>
+        导出索引
+      </button>
+      <button class="act" id="btnLog" title="导出最近的运行日志(追踪/保存每一步),用于排查追踪不上的问题">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v16H4z" opacity="0"/><path d="M7 8h10M7 12h10M7 16h6" stroke-linecap="round"/><rect x="3" y="4" width="18" height="16" rx="2"/></svg>
+        导出日志
+      </button>
+    </div>
+    <button class="act" id="btnViewer" title="打开仿 Claude 网页版的本地查看器,浏览已保存的对话">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 18v3M16 18v3M7 21h10" stroke-linecap="round"/></svg>
+      打开查看器
+    </button>
+
+    <div class="alltask" id="allTask" style="display:none"></div>
+  </div>
+
+  <div class="foot">
+    文件保存在浏览器下载目录的 <code>ClaudeArchive/</code> 下,每个对话一个子文件夹,内含 <code>conversation.md</code>、<code>conversation.json</code> 与 <code>files/</code>。<br>
+    点「打开本地查看器」可用仿 Claude 网页版的界面浏览存档。历史旧对话:打开它,等加载完成后点「保存当前对话」。
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

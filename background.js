@@ -1,7 +1,7 @@
 // background.js — service worker(module)
 // 状态机:接收捕获 → 合并会话状态 → 触发全参数补全抓取 → 防抖写盘(MD/JSON/资源)。
 import {
-  buildMarkdown, buildJson, dirFor, collectAssets, pickFileName, activePath
+  buildMarkdown, buildJson, dirFor, collectAssets, pickFileName, activePath, safeName
 } from './exporter.js';
 
 const ROOT = 'ClaudeArchive';
@@ -149,22 +149,38 @@ async function archive(convId, { force = false } = {}) {
   // 资源
   let fileCount = 0;
   if (settings.saveAssets) {
+    const usedNames = new Set();
+    const uniqName = (nm) => {
+      if (!usedNames.has(nm)) { usedNames.add(nm); return nm; }
+      const dot = nm.lastIndexOf('.');
+      const k = usedNames.size;
+      const out = dot > 0 ? `${nm.slice(0, dot)}_${k}${nm.slice(dot)}` : `${nm}_${k}`;
+      usedNames.add(out);
+      return out;
+    };
+
+    // 1) URL 资源(图片、生成文件、可下载的附件)
     const tabId = await findTab();
     if (tabId != null) {
       const assets = collectAssets(st.data, st.orgId);
-      const usedNames = new Set();
       for (const [url, suggested] of assets) {
         const resp = await askTab(tabId, { kind: 'fetchAsset', url });
         if (!resp || !resp.ok) continue;
-        let name = pickFileName(resp.cd, suggested, url, resp.ct);
-        if (usedNames.has(name)) {
-          const dot = name.lastIndexOf('.');
-          const n = usedNames.size;
-          name = dot > 0 ? `${name.slice(0, dot)}_${n}${name.slice(dot)}` : `${name}_${n}`;
-        }
-        usedNames.add(name);
+        const name = uniqName(pickFileName(resp.cd, suggested, url, resp.ct));
         const dl = await saveB64(`${base}/files/${name}`, resp.b64, (resp.ct || '').split(';')[0]);
         if (dl.ok) fileCount++;
+      }
+    }
+
+    // 2) 文本附件兜底:上传的文档常只有 extracted_content(无可下载 URL),存成 .txt 不丢内容
+    for (const m of (st.data.chat_messages || [])) {
+      for (const a of (m.attachments || [])) {
+        if (a && typeof a.extracted_content === 'string' && a.extracted_content.trim()) {
+          const stem = safeName(String(a.file_name || 'attachment').replace(/\.[^.]+$/, ''), 70) || 'attachment';
+          const name = uniqName(stem + '.txt');
+          const dl = await saveText(`${base}/files/${name}`, a.extracted_content, 'text/plain');
+          if (dl.ok) fileCount++;
+        }
       }
     }
   }

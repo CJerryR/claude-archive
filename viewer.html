@@ -8,11 +8,11 @@
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" crossorigin="anonymous"></script>
 <style>
   :root[data-theme="dark"]{
-    --bg:#262624; --bg-side:#1f1e1d; --bg-elev:#30302d; --bg-user:#34322f;
-    --text:#f1efe7; --text-2:#b8b4aa; --text-3:#86827a; --text-faint:#615e57;
-    --border:#393833; --border-soft:#2f2e2a; --accent:#d97757; --accent-soft:#3a2a23;
-    --code-bg:#1b1b19; --detail-bg:#2b2a27; --active:#34322e; --hover:#2c2b28;
-    --scroll:#46443e;
+    --bg:#1f1e1d; --bg-side:#1a1917; --bg-elev:#2a2826; --bg-user:#2a2826;
+    --text:#faf9f5; --text-2:#c2bfb6; --text-3:#8b877e; --text-faint:#6b675f;
+    --border:#3a3833; --border-soft:#2b2a27; --accent:#d97757; --accent-soft:#3a2a23;
+    --code-bg:#1a1917; --detail-bg:#262523; --active:#2f2d2a; --hover:#282724;
+    --scroll:#403e38;
   }
   :root[data-theme="light"]{
     --bg:#ffffff; --bg-side:#f5f4ee; --bg-elev:#f0efe8; --bg-user:#f3f1e9;
@@ -28,7 +28,7 @@
     font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;overflow:hidden;
     --sans:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
     --serif:"Tiempos Text",Georgia,"Songti SC","Noto Serif CJK SC","Source Han Serif SC","Times New Roman",serif;
-    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,"Cascadia Code","Courier New",monospace;
+    --mono:"Cascadia Code","Cascadia Mono",Consolas,"JetBrains Mono","SF Mono",Menlo,"DejaVu Sans Mono","Courier New",monospace;
   }
   ::-webkit-scrollbar{width:10px;height:10px}
   ::-webkit-scrollbar-thumb{background:var(--scroll);border-radius:6px;border:2px solid transparent;background-clip:content-box}
@@ -157,7 +157,7 @@
   .codecopy.copied{border-color:var(--accent);color:var(--accent)}
   .codecopy svg{width:13px;height:13px}
   .codewrap pre.md-code{background:#1e1e1e;border:0;border-radius:0;padding:13px 16px;margin:0;overflow:auto}
-  .codewrap pre.md-code code{background:transparent;padding:0;font-size:12.8px;line-height:1.6;color:#d4d4d4;font-family:var(--mono)}
+  .codewrap pre.md-code code{background:transparent;padding:0;font-size:13.5px;line-height:1.65;color:#d4d4d4;font-family:var(--mono)}
   /* VSCode Dark+ 经典配色 */
   .tk-kw{color:#569cd6}      /* 关键字 蓝 */
   .tk-str{color:#ce9178}     /* 字符串 橙棕 */
@@ -224,7 +224,7 @@
   .tool-body .lbl{font-family:var(--sans);font-size:11px;letter-spacing:.4px;color:var(--text-3);margin:0 0 7px;font-weight:600;text-transform:uppercase}
   .tool-body .lbl.gap{margin-top:14px}
   .tool-pre{
-    font-family:var(--mono);font-size:12.5px;line-height:1.6;color:var(--text);
+    font-family:var(--mono);font-size:13px;line-height:1.62;color:var(--text);
     white-space:pre-wrap;word-break:break-word;background:var(--code-bg);
     border-radius:8px;padding:11px 12px;max-height:340px;overflow:auto;
   }
@@ -269,6 +269,7 @@
   .step.s-err[open]>summary .node{background:#d4574d;color:#fff;border-color:#d4574d}
   .step>summary .slabel{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
   .step>summary .slabel b{font-weight:600;color:var(--text);font-family:var(--mono);font-size:12px}
+  .step>summary .slabel .tname{font-family:var(--mono);font-size:10.5px;color:var(--text-faint);background:var(--code-bg);padding:1px 6px;border-radius:5px;margin-left:6px}
   .step>summary .stag{font-size:10.5px;color:var(--text-faint);flex:none;margin-left:6px}
   .step>summary .schev{width:7px;height:7px;border-right:1.6px solid var(--text-3);border-bottom:1.6px solid var(--text-3);transform:rotate(-45deg);transition:transform .16s;flex:none}
   .step[open]>summary .schev{transform:rotate(45deg)}
@@ -742,13 +743,20 @@ function stepThink(block){
 function stepTool(use, result){
   const name=(use&&use.name)||(result&&result.name)||'工具';
   const isErr=!!(result&&result.is_error);
+  // 标题:优先用 message(Claude 思考链每步的动作描述,如"创建扩展项目目录"),回退工具名
+  let title=(use&&use.message)||(result&&result.message)||'';
+  // 去掉机械的 "Generating xxx..." / "Generated xxx" 这类占位,改回工具名更干净
+  if(!title || /^Generat(ing|ed)\b/i.test(title) || title===name) title='';
   const d=ce('details','step s-tool'+(isErr?' s-err':''));
   const s=ce('summary');
+  const labelHtml = title
+    ? esc(title)+' <span class="tname">'+esc(name)+'</span>'
+    : '<b>'+esc(name)+'</b>';
   s.innerHTML='<span class="node">'+toolIconSvg(name)+'</span>'+
-    '<span class="slabel"><b>'+esc(name)+'</b></span><span class="schev"></span>';
+    '<span class="slabel">'+labelHtml+'</span><span class="schev"></span>';
   d.appendChild(s);
   const body=ce('div','step-body');
-  if(use){ body.appendChild(lbl('请求参数')); body.appendChild(preBlock(JSON.stringify(use.input||{},null,2))); }
+  if(use){ body.appendChild(lbl('请求参数')); body.appendChild(toolInputNode(use)); }
   if(result){
     const isE=!!result.is_error;
     body.appendChild(lbl(isE?'返回(错误)':'返回结果', !!use));
@@ -756,6 +764,14 @@ function stepTool(use, result){
   }
   d.appendChild(body);
   return d;
+}
+// 工具请求参数:若 display_content 带 json_block(语言+代码)则按代码块高亮渲染,否则美化 input
+function toolInputNode(use){
+  const dc=use && use.display_content;
+  if(dc && dc.type==='json_block' && typeof dc.json_block==='string'){
+    try{ const o=JSON.parse(dc.json_block); if(o && typeof o.code==='string'){ const wrap=ce('div'); wrap.innerHTML=renderCodeBlock(o.language||'',o.code); return wrap.firstChild; } }catch(e){}
+  }
+  return preBlock(JSON.stringify(use.input||{},null,2));
 }
 function processTimeline(steps){
   // steps: [{kind:'think',block} | {kind:'tool',use,result}]
@@ -819,12 +835,23 @@ function renderAssistantContent(content, container){
 /* ---------- 资源解析(把 files/ 里的文件映射成可点链接/图片) ---------- */
 const _urls=new Map();
 function objUrl(f){ if(_urls.has(f))return _urls.get(f); const u=URL.createObjectURL(f); _urls.set(f,u); return u; }
-function resolveAsset(conv, filename, uuid){
+function resolveAsset(conv, filename, uuid, subdir){
   if(!conv) return null;
   const e = state.folders.get(conv._folder); if(!e||!e.files) return null;
   const entries=[...e.files]; // [relName, File]
   const base=(n)=>n.split('/').pop();
-  // 1) 文件名精确匹配
+  const inSub=(n)=> subdir ? (n===subdir+'/'+base(n) || n.startsWith(subdir+'/') || n.includes('/'+subdir+'/')) : true;
+  // 0) 若指定了轮次子目录:优先在该子目录里精确匹配文件名(每轮打开自己的文件)
+  if(subdir && filename){
+    const want=String(filename).toLowerCase();
+    for(const [n,f] of entries){ if(inSub(n) && base(n).toLowerCase()===want) return objUrl(f); }
+    // 子目录内 + uuid
+    if(uuid){ const u8=String(uuid).slice(0,8).toLowerCase(); for(const [n,f] of entries){ if(inSub(n) && base(n).toLowerCase().includes(u8)) return objUrl(f); } }
+    // 子目录内 + 同名主干
+    const fn=String(filename); const dot=fn.lastIndexOf('.'); const stem=(dot>0?fn.slice(0,dot):fn).toLowerCase(); const ext=(dot>0?fn.slice(dot):'').toLowerCase();
+    for(const [n,f] of entries){ if(!inSub(n))continue; const b=base(n).toLowerCase(); if(b===stem+ext||b.startsWith(stem+'__')) return objUrl(f); }
+  }
+  // 1) 文件名精确匹配(全局)
   if(filename){
     const want=String(filename).toLowerCase();
     for(const [n,f] of entries){ if(base(n).toLowerCase()===want) return objUrl(f); }
@@ -858,7 +885,7 @@ function blobUrlFor(text,key){
 function makeChip(obj, conv){
   const name = obj.file_name || obj.file_uuid || '文件';
   const uuid = obj.file_uuid || obj.uuid || null;
-  const url = resolveAsset(conv, obj.file_name, uuid);
+  const url = resolveAsset(conv, obj.file_name, uuid, obj._subdir||null);
   const isImg = /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(name);
 
   // 独立下载按钮(右键/点击图标才下载),不影响主点击
@@ -1013,6 +1040,14 @@ function branchSwitcher(sibs, curUuid, conv){
 }
 
 /* ---------- 渲染:单条消息 ---------- */
+// 轮次目录名,需与扩展 exporter.roundOf 完全一致:r{序号}_{时分秒}_{uuid8}
+function roundTagFor(m, idx){
+  if(idx==null || idx<0) return null;
+  const u8=String(m&&m.uuid||'').replace(/[^0-9a-zA-Z]/g,'').slice(0,8)||'x';
+  let hms='';
+  try{ const d=new Date(m.created_at); if(!isNaN(d)){ const p=n=>String(n).padStart(2,'0'); hms=`${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; } }catch(e){}
+  return `r${String(idx).padStart(2,'0')}_${hms||'000000'}_${u8}`;
+}
 function messageEl(m, conv, sibs){
   const row=ce('div','msg '+(m.sender==='human'?'human':'assistant'));
   const inner=ce('div','msg-inner');
@@ -1025,13 +1060,16 @@ function messageEl(m, conv, sibs){
   const files=[].concat(Array.isArray(m.files)?m.files:[], Array.isArray(m.files_v2)?m.files_v2:[]);
 
   // Claude 生成的文件:藏在 present_files 等工具结果的 local_resource 里(m.files 常为空)
+  // 计算与扩展一致的轮次目录名 r{序号}_{时分秒}_{uuid8},以便在本地按"该轮自己的文件夹"读取
+  const mIdx = (conv.data && Array.isArray(conv.data.chat_messages)) ? conv.data.chat_messages.indexOf(m) : -1;
+  const roundTag = roundTagFor(m, mIdx);
   const genFiles=[];
   for(const b of (Array.isArray(m.content)?m.content:[])){
     if(b && b.type==='tool_result' && Array.isArray(b.content)){
       for(const item of b.content){
         if(item && item.type==='local_resource' && item.file_path){
           const nm=item.name && /\.[a-z0-9]{1,8}$/i.test(item.name) ? item.name : (item.file_path.split('/').pop()||item.name||'文件');
-          genFiles.push({ file_name:nm, file_uuid:item.uuid||null, _path:item.file_path });
+          genFiles.push({ file_name:nm, file_uuid:item.uuid||null, _path:item.file_path, _subdir:roundTag });
         }
       }
     }

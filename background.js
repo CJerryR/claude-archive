@@ -7,6 +7,27 @@ import {
 const ROOT = 'ClaudeArchive';
 const DEBOUNCE_MS = 2500;
 
+// 某子目录下已用过的文件名集合(savedRec 值是 "子目录/文件名")
+function savedDirNames(savedRec, dir) {
+  const set = new Set();
+  const pre = dir + '/';
+  for (const v of Object.values(savedRec || {})) {
+    if (typeof v === 'string' && v.startsWith(pre)) set.add(v.slice(pre.length));
+  }
+  return set;
+}
+// 目录内唯一文件名:撞名则加 __2/__3…
+function uniqueInDir(name, usedSet) {
+  if (!usedSet.has(name)) { usedSet.add(name); return name; }
+  const dot = name.lastIndexOf('.');
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : '';
+  let k = 2, cand = `${stem}__${k}${ext}`;
+  while (usedSet.has(cand)) { k++; cand = `${stem}__${k}${ext}`; }
+  usedSet.add(cand);
+  return cand;
+}
+
 const DEFAULT_SETTINGS = {
   enabled: true,        // 总开关
   autoSave: true,       // 捕获后自动写盘
@@ -166,63 +187,53 @@ async function archive(convId, { force = false } = {}) {
   // 资源
   let fileCount = 0;
   if (settings.saveAssets) {
-    // 已保存文件记录(按对话持久化),用于增量、不覆盖历史
+    // 已保存文件记录(按对话持久化,跨会话/跨版本永久保留)→ idKey -> 相对路径
     const savedKey = `saved_files_${convId}`;
-    const savedRec = (await chrome.storage.local.get(savedKey))[savedKey] || {}; // uuid/path -> finalName
-    const savedNames = new Set(Object.values(savedRec));
+    const savedRec = (await chrome.storage.local.get(savedKey))[savedKey] || {};
 
     const tabId = await findTab();
-    const fdir = filesDirFor(conv); // files/{对话码}
+    const convDir = filesDirFor(conv); // files/{对话码}(普通图片/上传文件放这里)
     if (tabId != null) {
-      const assets = collectAssets(st.data, st.orgId, convId); // [{path,name,uuid}]
-      // 确定性命名:同 uuid 同名只一份;不同文件同名加 __uuid8 区分
+      const assets = collectAssets(st.data, st.orgId, convId); // [{path,name,uuid,subdir,round}]
+      // 文件名:同一目录内去重(不同轮次在不同子目录,天然不冲突)
       const nameMap = assignFileNames(assets, (a) => pickFileName('', a.name, a.path, ''));
 
-      // 为避免与历史已存名字冲突,做二次保护
-      const ensureUnique = (nm, idKey) => {
-        if (savedRec[idKey]) return savedRec[idKey]; // 该文件之前存过,沿用原名
-        if (!savedNames.has(nm)) return nm;
-        const dot = nm.lastIndexOf('.');
-        const stem = dot > 0 ? nm.slice(0, dot) : nm;
-        const ext = dot > 0 ? nm.slice(dot) : '';
-        let k = 2, cand = `${stem}__${k}${ext}`;
-        while (savedNames.has(cand)) { k++; cand = `${stem}__${k}${ext}`; }
-        return cand;
-      };
-
       for (const a of assets) {
-        // 文件身份:有 uuid 用 uuid(同名不同版本=不同uuid,各自保存);否则用 path
-        const idKey = a.uuid || a.path;
-        // 增量:这个文件之前已成功保存过 → 跳过(不重抓、不覆盖历史)
+        const sub = a.subdir ? `files/${a.subdir}` : convDir;  // 生成文件→轮次目录;其余→对话目录
+        // 文件身份:含子目录,确保不同轮次同名文件各自记录、互不覆盖
+        const idKey = (a.subdir ? a.subdir + '|' : '') + (a.uuid || a.path);
+        // 增量:已成功保存过 → 跳过(不重抓、不覆盖)
         if (savedRec[idKey]) continue;
 
         const resp = await askTab(tabId, { kind: 'fetchAsset', url: a.path });
         if (!resp || !resp.ok) continue;
 
+        // 文件名:按响应真实 content-type 定扩展名(webp 就 .webp,png 就 .png,不强行改名)
         let finalName = nameMap.get(a.path) || pickFileName(resp.cd, a.name, a.path, resp.ct);
         finalName = pickFileName(resp.cd, finalName, a.path, resp.ct);
-        finalName = ensureUnique(finalName, idKey);
+        // 该目录内若已有同名(历史),加序号
+        const usedInDir = savedDirNames(savedRec, sub);
+        finalName = uniqueInDir(finalName, usedInDir);
 
-        const dl = await saveB64(`${base}/${fdir}/${finalName}`, resp.b64, (resp.ct || '').split(';')[0]);
+        const dl = await saveB64(`${base}/${sub}/${finalName}`, resp.b64, (resp.ct || '').split(';')[0]);
         if (dl.ok) {
           fileCount++;
-          savedRec[idKey] = finalName;
-          savedNames.add(finalName);
+          savedRec[idKey] = sub + '/' + finalName; // 记完整相对路径,便于判重与统计
         }
       }
     }
 
-    // 文本附件兜底:上传文档只有 extracted_content(无 URL)→ 存 .txt(也走增量)
+    // 文本附件兜底(放对话目录)
     for (const m of (st.data.chat_messages || [])) {
       for (const a of (m.attachments || [])) {
         if (a && typeof a.extracted_content === 'string' && a.extracted_content.trim()) {
           const idKey = 'att_' + (a.id || a.file_uuid || (a.file_name + ':' + a.file_size));
           if (savedRec[idKey]) continue;
           const stem = safeName(String(a.file_name || 'attachment').replace(/\.[^.]+$/, ''), 70) || 'attachment';
-          let nm = stem + '.txt';
-          if (savedNames.has(nm)) { let k = 2; while (savedNames.has(`${stem}__${k}.txt`)) k++; nm = `${stem}__${k}.txt`; }
-          const dl = await saveText(`${base}/${fdir}/${nm}`, a.extracted_content, 'text/plain');
-          if (dl.ok) { fileCount++; savedRec[idKey] = nm; savedNames.add(nm); }
+          const usedInDir = savedDirNames(savedRec, convDir);
+          const nm = uniqueInDir(stem + '.txt', usedInDir);
+          const dl = await saveText(`${base}/${convDir}/${nm}`, a.extracted_content, 'text/plain');
+          if (dl.ok) { fileCount++; savedRec[idKey] = convDir + '/' + nm; }
         }
       }
     }

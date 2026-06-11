@@ -247,21 +247,30 @@ export function collectAssets(data, orgId, convId) {
     return false;
   };
 
-  // 用 file_path 生成 wiggle 下载 URL(Claude 生成文件 / 任意容器内文件)
-  // 按 path 去重:同一路径就是同一个文件位置(服务器只保留当前版本)
-  const considerByPath = (fp, name, uuid) => {
+  // 生成文件:按"轮次(消息)+ 路径"去重 —— 不同轮次的同名文件视为不同版本,各自保留
+  const considerByPath = (fp, name, uuid, round) => {
     if (!fp || typeof fp !== 'string' || !orgId || !convId) return;
     const u = `/api/organizations/${orgId}/conversations/${convId}/wiggle/download-file?path=${encodeURIComponent(fp)}`;
     const p = norm(u);
     if (!p) return;
-    const key = 'path:' + fp.toLowerCase();   // 以路径为去重键
-    const base = fp.split('/').pop() || name || null;  // 真实文件名(带扩展名)优先
+    const base = fp.split('/').pop() || name || null;  // 真实文件名(带扩展名)
+    const key = 'gen:' + (round||'') + ':' + fp.toLowerCase();  // 轮次+路径 为去重键
     const prev = byKey.get(key);
-    if (!prev) { byKey.set(key, { name: base, path: p, uuid: uuid || null }); return; }
+    if (!prev) { byKey.set(key, { name: base, path: p, uuid: uuid || null, subdir: round || null, round: round || null }); return; }
     if (base && !prev.name) prev.name = base;
   };
 
-  for (const m of (data?.chat_messages || [])) {
+  // 轮次目录名:r{消息序号}_{时分秒}_{uuid8},直观且唯一,保证不同轮次同名文件共存
+  const roundOf = (m, idx) => {
+    const u8 = String(m.uuid || '').replace(/[^0-9a-zA-Z]/g, '').slice(0, 8) || 'x';
+    let hms = '';
+    try { const d = new Date(m.created_at); if (!isNaN(d)) { const p = n => String(n).padStart(2, '0'); hms = `${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; } } catch {}
+    return `r${String(idx).padStart(2, '0')}_${hms || '000000'}_${u8}`;
+  };
+
+  const msgArr = data?.chat_messages || [];
+  for (let mi = 0; mi < msgArr.length; mi++) {
+    const m = msgArr[mi];
     for (const a of (m.attachments || [])) {
       consider(a.preview_url, a.file_name);
       consider(a.file_url, a.file_name);
@@ -284,28 +293,25 @@ export function collectAssets(data, orgId, convId) {
       consider(f.file_url, name);
       consider(f.url, name);
       if (f.document && f.document.url) consider(f.document.url, name);
-      // 非图片(blob 等,如 docx/json/md/zip)→ wiggle/download-file?path=
       const gotBlob = !isImage && considerBlob(f, name);
       const fid = f.file_uuid || f.uuid;
-      // 图片但没现成地址 → 拼 /files/{uuid}/preview
       if (fid && orgId && isImage && !f.preview_url && !(f.preview_asset && f.preview_asset.url)) {
         consider(`/api/${orgId}/files/${fid}/preview`, name);
       }
-      // 非图片又没 path 兜底 → 退到 /files/preview
       if (!isImage && !gotBlob && fid && orgId) {
         consider(`/api/${orgId}/files/${fid}/preview`, name);
       }
     }
 
-    // ★ Claude 生成的文件:藏在 present_files 等工具的 tool_result.local_resource 里
-    //   (m.files 通常为空,真正的产出在这里)。用 file_path 走 wiggle 下载。
+    // ★ Claude 生成的文件(present_files 的 local_resource):按"轮次"归档,版本共存
+    const round = roundOf(m, mi);
     for (const b of (m.content || [])) {
       if (b && b.type === 'tool_result') {
         const c = b.content;
         if (Array.isArray(c)) {
           for (const item of c) {
             if (item && item.type === 'local_resource' && item.file_path) {
-              considerByPath(item.file_path, item.name, item.uuid);
+              considerByPath(item.file_path, item.name, item.uuid, round);
             }
           }
         }

@@ -1,65 +1,23 @@
 // background.js — service worker(module)
 // 状态机:接收捕获 → 合并会话状态 → 触发全参数补全抓取 → 防抖写盘(MD/JSON/资源)。
 import {
-  buildMarkdown, buildJson, dirFor, collectAssets, pickFileName, activePath, safeName, assignFileNames, filesDirFor, convHash
+  buildMarkdown, buildJson, dirFor, collectAssets, pickFileName, activePath
 } from './exporter.js';
 
 const ROOT = 'ClaudeArchive';
 const DEBOUNCE_MS = 2500;
-
-// 某子目录下已用过的文件名集合(savedRec 值是 "子目录/文件名")
-function savedDirNames(savedRec, dir) {
-  const set = new Set();
-  const pre = dir + '/';
-  for (const v of Object.values(savedRec || {})) {
-    if (typeof v === 'string' && v.startsWith(pre)) set.add(v.slice(pre.length));
-  }
-  return set;
-}
-// 目录内唯一文件名:撞名则加 __2/__3…
-function uniqueInDir(name, usedSet) {
-  if (!usedSet.has(name)) { usedSet.add(name); return name; }
-  const dot = name.lastIndexOf('.');
-  const stem = dot > 0 ? name.slice(0, dot) : name;
-  const ext = dot > 0 ? name.slice(dot) : '';
-  let k = 2, cand = `${stem}__${k}${ext}`;
-  while (usedSet.has(cand)) { k++; cand = `${stem}__${k}${ext}`; }
-  usedSet.add(cand);
-  return cand;
-}
 
 const DEFAULT_SETTINGS = {
   enabled: true,        // 总开关
   autoSave: true,       // 捕获后自动写盘
   saveAssets: true,     // 下载文件(上传/生成)
   keepStream: false,    // 保留原始 SSE 事件流
-  refetchFull: true,    // 完成后用全参数补全抓取(确保 thinking/tool 完整)
-  keepHistory: true,    // 保留每次抓取的 JSON 历史快照(便于多版本合并)
-  silentDownload: true, // 静默下载:完成后从浏览器下载记录移除(不删文件),避免刷屏
-  debugLog: false       // 调试日志:在 Service Worker 控制台打印「追踪→保存」每一步
+  refetchFull: true     // 完成后用全参数补全抓取(确保 thinking/tool 完整)
 };
 
 // 内存态:convId -> { orgId, data, full, lastRequest, lastStream, name, savedSig }
 const state = new Map();
 const timers = new Map();
-
-// ---------------- 运行日志 ----------------
-// 既打印到控制台,也写入 chrome.storage.local 的环形缓冲(最近 300 条),供弹窗"查看日志"导出
-let _logCache = null;
-async function logLine(stage, msg, extra) {
-  let on = false;
-  try { const { settings } = await chrome.storage.local.get('settings'); on = !!(settings && settings.debugLog); } catch {}
-  const line = { t: Date.now(), stage, msg, ...(extra ? { extra } : {}) };
-  // 控制台(开了 debugLog 才打,避免噪音)
-  if (on) { try { console.log(`[CCA ${stage}] ${msg}`, extra != null ? extra : ''); } catch {} }
-  // 环形缓冲(始终记录,方便事后排查;只留最近 300 条)
-  try {
-    if (!_logCache) _logCache = (await chrome.storage.local.get('runlog')).runlog || [];
-    _logCache.push(line);
-    if (_logCache.length > 300) _logCache = _logCache.slice(-300);
-    await chrome.storage.local.set({ runlog: _logCache });
-  } catch {}
-}
 
 // ---------------- 设置 ----------------
 async function getSettings() {
@@ -117,129 +75,22 @@ async function toDataUrl(payload) {
   return await chrome.runtime.sendMessage({ target: 'offscreen', cmd: 'toDataUrl', payload });
 }
 
-// 对 base64 内容算 SHA-256 指纹(用于"内容是否变化"判断)
-async function sha256OfB64(b64) {
-  try {
-    const bin = atob(b64);
-    const u = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
-    const h = await crypto.subtle.digest('SHA-256', u);
-    return [...new Uint8Array(h)].map(x => x.toString(16).padStart(2, '0')).join('');
-  } catch (e) { return null; }
-}
-function sha256OfText(text) {
-  try {
-    const u = new TextEncoder().encode(String(text == null ? '' : text));
-    return crypto.subtle.digest('SHA-256', u).then(h =>
-      [...new Uint8Array(h)].map(x => x.toString(16).padStart(2, '0')).join(''));
-  } catch (e) { return Promise.resolve(null); }
-}
-// 拆分 basename → {stem, ext}
-function splitName(name) {
-  const dot = name.lastIndexOf('.');
-  return dot > 0 ? { stem: name.slice(0, dot), ext: name.slice(dot) } : { stem: name, ext: '' };
-}
-// 给一个 basename 生成第 N 版的名字:第1版原名,之后 name__v2.ext / __v3...
-function versionedName(baseName, versionIndex) {
-  if (versionIndex <= 1) return baseName;
-  const { stem, ext } = splitName(baseName);
-  return `${stem}__v${versionIndex}${ext}`;
-}
-
 // ---------------- 下载 ----------------
-// 列出 chrome.downloads 记录里、某目录下、磁盘仍存在的所有文件名(basename)。
-// 用于"按磁盘真实情况"判断同名/算版本号,避免与 verMap 脱节导致撞名。
-function listDownloadedInDir(dirRel) {
-  return new Promise((resolve) => {
-    const dir = (dirRel.replace(/\\/g, '/').replace(/\/+$/, '')) + '/';
-    const set = new Set();
-    try {
-      chrome.downloads.search({ limit: 0, orderBy: ['-startTime'] }, (items) => {
-        if (!chrome.runtime.lastError && Array.isArray(items)) {
-          for (const it of items) {
-            if (!it || !it.filename) continue;
-            if (it.state !== 'complete' || it.exists === false) continue;
-            const fn = it.filename.replace(/\\/g, '/');
-            const i = fn.indexOf('/' + dir);
-            // 末尾匹配 ".../<dir>/<file>"(file 不再含子目录)
-            const at = fn.endsWith(dir) ? -1 : (i >= 0 ? i + 1 + dir.length : (fn.startsWith(dir) ? dir.length : -1));
-            if (at >= 0) {
-              const rest = fn.slice(at);
-              if (rest && !rest.includes('/')) set.add(rest);
-            }
-          }
-        }
-        resolve(set);
-      });
-    } catch (e) { resolve(set); }
-  });
-}
-// 查询某相对路径是否"已下载且磁盘仍在"
-function alreadyDownloaded(relPath) {
-  return new Promise((resolve) => {
-    try {
-      const tail = relPath.replace(/\\/g, '/');
-      chrome.downloads.search({ limit: 0, orderBy: ['-startTime'] }, (items) => {
-        if (chrome.runtime.lastError || !Array.isArray(items)) { resolve(false); return; }
-        for (const it of items) {
-          if (!it || !it.filename) continue;
-          const fn = it.filename.replace(/\\/g, '/');
-          if ((fn === tail || fn.endsWith('/' + tail)) && it.state === 'complete' && it.exists !== false) {
-            resolve(true); return;
-          }
-        }
-        resolve(false);
-      });
-    } catch (e) { resolve(false); }
-  });
-}
 function downloadDataUrl(url, path) {
   return new Promise((resolve) => {
     try {
-      // conflictAction:'uniquify' 兜底——万一仍撞名,Chrome 静默加 (1),绝不弹"另存为/替换"窗口
       chrome.downloads.download(
-        { url, filename: path, conflictAction: 'uniquify', saveAs: false },
+        { url, filename: path, conflictAction: 'overwrite', saveAs: false },
         (id) => {
           if (chrome.runtime.lastError || id === undefined) {
             resolve({ ok: false, error: chrome.runtime.lastError?.message || 'download failed' });
           } else {
             resolve({ ok: true, id });
-            // 静默:下载完成后从下载记录/下载栏移除该条(文件仍保留在磁盘)
-            maybeEraseDownload(id);
           }
         }
       );
     } catch (e) { resolve({ ok: false, error: String(e) }); }
   });
-}
-// 下载完成即从浏览器下载记录中抹去这一条(不删文件,只清记录,避免刷屏)
-async function maybeEraseDownload(id) {
-  try {
-    const s = await getSettings();
-    if (s.silentDownload === false) return; // 用户可关闭
-    const finish = (downloadDelta) => {
-      if (downloadDelta.id !== id) return;
-      if (downloadDelta.state && downloadDelta.state.current === 'complete') {
-        chrome.downloads.onChanged.removeListener(finish);
-        try { chrome.downloads.erase({ id }, () => void chrome.runtime.lastError); } catch {}
-      } else if (downloadDelta.state && downloadDelta.state.current === 'interrupted') {
-        chrome.downloads.onChanged.removeListener(finish);
-      }
-    };
-    chrome.downloads.onChanged.addListener(finish);
-    // 兜底:有些完成事件可能早于监听注册,直接查一次
-    setTimeout(() => {
-      try {
-        chrome.downloads.search({ id }, (items) => {
-          const it = items && items[0];
-          if (it && it.state === 'complete') {
-            chrome.downloads.onChanged.removeListener(finish);
-            chrome.downloads.erase({ id }, () => void chrome.runtime.lastError);
-          }
-        });
-      } catch {}
-    }, 1500);
-  } catch {}
 }
 async function saveText(path, text, mime = 'text/plain') {
   const url = await toDataUrl({ kind: 'text', text, mime });
@@ -251,9 +102,8 @@ async function saveB64(path, b64, mime = 'application/octet-stream') {
 }
 
 // ---------------- 找一个 claude.ai 标签页(代理带凭证抓取) ----------------
-const CLAUDE_TAB_GLOBS = ['https://claude.ai/*', 'https://*.claude.ai/*', 'https://claude.hk.cn/*'];
 async function findTab() {
-  const tabs = await chrome.tabs.query({ url: CLAUDE_TAB_GLOBS });
+  const tabs = await chrome.tabs.query({ url: ['https://claude.ai/*', 'https://*.claude.ai/*'] });
   const active = tabs.find(t => t.active) || tabs[0];
   return active?.id ?? null;
 }
@@ -272,186 +122,50 @@ function askTab(tabId, msg, timeoutMs = 30000) {
   });
 }
 
-// 把一个 Claude 标签页导航到指定对话,等待拦截器抓到该对话的数据(用于内存里没有的历史对话)
-async function navigateAndCapture(convId, { timeoutMs = 25000 } = {}) {
-  if (state.get(convId)?.data) return true; // 已在内存
-  let tabId = await findTab();
-  // 没有任何 Claude 标签页 → 新建一个(后台)
-  let createdTab = false;
-  const origin = 'https://claude.ai';
-  if (tabId == null) {
-    const t = await chrome.tabs.create({ url: `${origin}/chat/${convId}`, active: false });
-    tabId = t.id; createdTab = true;
-  } else {
-    try {
-      const t = await chrome.tabs.get(tabId);
-      const m = String(t.url || '').match(/\/chat\/([0-9a-f-]{36})/i);
-      const base = (String(t.url||'').match(/^https?:\/\/[^/]+/) || [origin])[0];
-      if (!m || m[1].toLowerCase() !== convId.toLowerCase()) {
-        await chrome.tabs.update(tabId, { url: `${base}/chat/${convId}` });
-      }
-    } catch { return false; }
-  }
-  // 轮询等待 state 里出现该对话数据(拦截器捕获 conversation JSON 后写入)
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    await new Promise(r => setTimeout(r, 600));
-    if (state.get(convId)?.data) {
-      // 触发一次全参数补全抓取,确保 thinking/tool 完整
-      const st = state.get(convId);
-      if (st?.orgId) { try { await refetchFull(st.orgId, convId); await new Promise(r => setTimeout(r, 800)); } catch {} }
-      return true;
-    }
-  }
-  return false;
-}
-
-// 归档指定 convId:若内存没有,先导航抓取再归档
-async function archiveById(convId, { force = true } = {}) {
-  if (!state.get(convId)?.data) {
-    const ok = await navigateAndCapture(convId);
-    if (!ok) return { ok: false, error: '无法加载该对话(需要登录的 Claude 标签页)' };
-  }
-  return await archive(convId, { force });
-}
-
-
+// ---------------- 核心:归档一个会话 ----------------
 async function archive(convId, { force = false } = {}) {
   const st = state.get(convId);
-  if (!st || !st.data) { logLine('archive', `跳过:内存中没有「${convId}」的数据(可能未捕获,试着刷新该对话页面)`, { convId }); return { ok: false, error: 'no state' }; }
+  if (!st || !st.data) return { ok: false, error: 'no state' };
   const settings = await getSettings();
-  if (!settings.enabled) { logLine('archive', '跳过:扩展总开关已关闭'); return { ok: false, error: 'disabled' }; }
+  if (!settings.enabled) return { ok: false, error: 'disabled' };
 
-  const conv = { uuid: convId, orgId: st.orgId, data: st.data, full: st.full, origin: st.origin,
+  const conv = { uuid: convId, orgId: st.orgId, data: st.data, full: st.full,
                  lastRequest: st.lastRequest, lastStream: st.lastStream };
 
   // 去重:活动分支结构 + 消息数 + leaf 变化才重写
   const { path } = activePath(st.data);
   const sig = `${st.data?.updated_at || ''}|${path.length}|${st.data?.current_leaf_message_uuid || ''}|${st.full ? 'F' : 'P'}`;
-  if (!force && st.savedSig === sig) { logLine('archive', `跳过:「${st.name || convId}」内容未变化(已是最新)`, { convId }); return { ok: true, skipped: true }; }
-
-  logLine('archive', `开始保存「${st.name || convId}」${force ? '(强制)' : ''}…`, { convId });
+  if (!force && st.savedSig === sig) return { ok: true, skipped: true };
 
   const dir = dirFor(conv);
   const base = `${ROOT}/${dir}`;
   const md = buildMarkdown(conv);
   const json = buildJson(conv);
 
-  // canonical:始终保持最新(覆盖)
   const r1 = await saveText(`${base}/conversation.md`, md, 'text/markdown');
   const r2 = await saveText(`${base}/conversation.json`, json, 'application/json');
-
-  // 历史快照:把这次的 JSON 另存一份带时间戳到 history/,内容变化才存(便于多版本合并去重)
-  if (settings.keepHistory !== false) {
-    try {
-      const histKey = `hist_sig_${convId}`;
-      const lastSig = (await chrome.storage.local.get(histKey))[histKey];
-      const curSig = `${st.data?.updated_at || ''}|${(st.data?.chat_messages || []).length}|${st.data?.current_leaf_message_uuid || ''}`;
-      if (lastSig !== curSig) {
-        const ts = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
-        const upd = (st.data?.updated_at || '').replace(/[:.]/g, '-').slice(0, 19) || ts;
-        await saveText(`${base}/history/conversation_${upd}.json`, json, 'application/json');
-        await chrome.storage.local.set({ [histKey]: curSig });
-      }
-    } catch {}
-  }
 
   // 资源
   let fileCount = 0;
   if (settings.saveAssets) {
-    const savedKey = `saved_files_${convId}`;
-    const savedRec = (await chrome.storage.local.get(savedKey))[savedKey] || {};
-    // 内容版本表:basename -> [{hash, name}, ...](已落盘的各版本)
-    const verKey = `filever_${convId}`;
-    const verMap = (await chrome.storage.local.get(verKey))[verKey] || {};
-    // 兼容旧格式(basename -> [hash,...]):转成 [{hash,name}]
-    for (const k of Object.keys(verMap)) {
-      if (Array.isArray(verMap[k]) && verMap[k].length && typeof verMap[k][0] === 'string') {
-        verMap[k] = verMap[k].map((h, i) => ({ hash: h, name: versionedName(k, i + 1) }));
-      }
-    }
-    // 全局已存指纹(同一张图换名也不重存)
-    const seenHashes = new Set();
-    for (const arr of Object.values(verMap)) for (const v of arr) if (v && v.hash) seenHashes.add(v.hash);
-
     const tabId = await findTab();
-    const convDir = filesDirFor(conv); // files/{对话码}/
-
-    // 已占用的文件名集合 = 我们自己持久记录里该对话已存的所有版本名(不依赖会被擦除的下载历史)
-    const diskNames = new Set();
-    for (const arr of Object.values(verMap)) for (const v of arr) if (v && v.name) diskNames.add(v.name);
-    // 再并入 savedRec 里记录过的(兼容历史数据)
-    for (const rel of Object.values(savedRec)) {
-      if (typeof rel === 'string') { const b = rel.split('/').pop(); if (b) diskNames.add(b); }
-    }
-
-    // 决定一个待存内容应使用的文件名;返回 null 表示"无需保存"(同哈希已存)
-    const decideName = (baseName, hash) => {
-      const arr = verMap[baseName] || (verMap[baseName] = []);
-      // 规则3:这份内容已存过(任何名字)→ 不存
-      if (hash && seenHashes.has(hash)) return null;
-      // 规则1+2:从第 1 版开始找一个"磁盘上不存在"的名字,绝不覆盖
-      let idx = 1, cand = versionedName(baseName, idx);
-      while (diskNames.has(cand)) { idx++; cand = versionedName(baseName, idx); }
-      return cand;
-    };
-    const remember = (baseName, hash, name) => {
-      (verMap[baseName] || (verMap[baseName] = [])).push({ hash: hash || null, name });
-      if (hash) seenHashes.add(hash);
-      diskNames.add(name);            // 立刻占用该名,后续同名内容顺延 v(n+1)
-      savedRec['gen:' + (hash || (convDir + '/' + name))] = convDir + '/' + name;
-    };
-
     if (tabId != null) {
-      const assets = collectAssets(st.data, st.orgId, convId);
-      for (const a of assets) {
-        const resp = await askTab(tabId, { kind: 'fetchAsset', url: a.path });
-        if (!resp || !resp.ok || !resp.b64) continue;
-        const hash = await sha256OfB64(resp.b64);
-        if (hash && seenHashes.has(hash)) continue;          // 规则3:同哈希不存
-        const baseName = pickFileName(resp.cd, a.name, a.path, resp.ct);
-        const finalName = decideName(baseName, hash);
-        if (!finalName) continue;
-        const rel = `${convDir}/${finalName}`;
-        const dl = await saveB64(`${base}/${rel}`, resp.b64, (resp.ct || '').split(';')[0]);
-        if (dl.ok) { fileCount++; remember(baseName, hash, finalName); }
+      const assets = collectAssets(st.data, st.orgId);
+      const usedNames = new Set();
+      for (const [url, suggested] of assets) {
+        const resp = await askTab(tabId, { kind: 'fetchAsset', url });
+        if (!resp || !resp.ok) continue;
+        let name = pickFileName(resp.cd, suggested, url, resp.ct);
+        if (usedNames.has(name)) {
+          const dot = name.lastIndexOf('.');
+          const n = usedNames.size;
+          name = dot > 0 ? `${name.slice(0, dot)}_${n}${name.slice(dot)}` : `${name}_${n}`;
+        }
+        usedNames.add(name);
+        const dl = await saveB64(`${base}/files/${name}`, resp.b64, (resp.ct || '').split(';')[0]);
+        if (dl.ok) fileCount++;
       }
     }
-
-    // 文本附件(同规则)
-    for (const m of (st.data.chat_messages || [])) {
-      for (const a of (m.attachments || [])) {
-        if (a && typeof a.extracted_content === 'string' && a.extracted_content.trim()) {
-          const hash = await sha256OfText(a.extracted_content);
-          if (hash && seenHashes.has(hash)) continue;
-          const stem = safeName(String(a.file_name || 'attachment').replace(/\.[^.]+$/, ''), 70) || 'attachment';
-          const baseName = stem + '.txt';
-          const finalName = decideName(baseName, hash);
-          if (!finalName) continue;
-          const rel = `${convDir}/${finalName}`;
-          const dl = await saveText(`${base}/${rel}`, a.extracted_content, 'text/plain');
-          if (dl.ok) { fileCount++; remember(baseName, hash, finalName); }
-        }
-      }
-    }
-
-    await chrome.storage.local.set({ [savedKey]: savedRec, [verKey]: verMap });
-
-    // 进度记录:应下载文件总数(去重) vs 已保存,供 popup 进度条
-    try {
-      const allAssets = collectAssets(st.data, st.orgId, convId);
-      let expectText = 0;
-      for (const m of (st.data.chat_messages || [])) {
-        for (const a of (m.attachments || [])) {
-          if (a && typeof a.extracted_content === 'string' && a.extracted_content.trim()) expectText++;
-        }
-      }
-      const total = allAssets.length + expectText;
-      const saved = Object.keys(savedRec).length;
-      const prog = (await chrome.storage.local.get('progress')).progress || {};
-      prog[convId] = { name: st.data?.name || '未命名对话', total, saved, updatedAt: Date.now() };
-      await chrome.storage.local.set({ progress: prog });
-    } catch {}
   }
 
   st.savedSig = sig;
@@ -473,7 +187,6 @@ async function archive(convId, { force = false } = {}) {
     setTimeout(() => chrome.action.setBadgeText({ text: '' }), 1800);
   } catch {}
 
-  logLine('archive', `已保存「${st.data?.name || convId}」· ${fileCount} 个文件`, { convId, files: fileCount });
   return { ok: r1.ok || r2.ok, files: fileCount, dir };
 }
 
@@ -512,15 +225,13 @@ async function onCapture(type, p) {
 
   if (type === 'conversation') {
     const convId = p.data?.uuid || idFromUrl(p.url);
-    if (!convId) { logLine('capture', '收到 conversation 但无法识别 convId,跳过', { url: p.url }); return; }
+    if (!convId) return;
     const st = state.get(convId) || {};
     st.orgId = p.orgId || st.orgId;
     st.data = p.data;
     st.full = st.full || /render_all_tools=true/i.test(p.url || '');
     st.name = p.data?.name;
-    try { if (p.url && /^https?:\/\//i.test(p.url)) st.origin = new URL(p.url).origin; } catch {}
     state.set(convId, st);
-    logLine('capture', `已捕获并追踪「${st.name || convId}」(${(p.data?.chat_messages || []).length} 条消息${st.full ? ',完整版' : ''})`, { convId });
     scheduleArchive(convId);
     return;
   }
@@ -578,8 +289,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({
         ok: true, settings, stats: stats || {},
         convCount: Object.keys(index || {}).length,
-        tracked: Object.keys(index || {}).length, // 已跟踪=持久索引里的对话数(刷新不清零)
-        current
+        tracked: state.size, current
       });
     })();
     return true;
@@ -611,44 +321,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.kind === 'popup:saveAll') {
     (async () => {
-      const { index } = await chrome.storage.local.get('index');
-      const ids = Object.keys(index || {});
-      // 同时把当前打开的对话并入(可能还没进 index)
-      const tabId0 = await findTab();
-      if (tabId0 != null) {
-        try { const t = await chrome.tabs.get(tabId0); const m = String(t.url||'').match(/\/chat\/([0-9a-f-]{36})/i); if (m && !ids.includes(m[1])) ids.unshift(m[1]); } catch {}
+      let saved = 0, files = 0;
+      for (const cid of [...state.keys()]) {
+        const r = await archive(cid, { force: true });
+        if (r.ok && !r.skipped) { saved++; files += (r.files || 0); }
       }
-      let saved = 0, files = 0, failed = 0, done = 0;
-      for (const cid of ids) {
-        await chrome.storage.local.set({ allTask: { phase: 'saveAll', total: ids.length, done, cur: (index?.[cid]?.name || cid) } });
-        const r = await archiveById(cid, { force: true });
-        if (r.ok) { saved++; files += (r.files || 0); } else { failed++; }
-        done++;
-      }
-      await chrome.storage.local.remove('allTask');
-      sendResponse({ ok: true, saved, files, failed, total: ids.length });
-    })();
-    return true;
-  }
-
-  // 检查全部(已跟踪)对话的保存完整性,并自动补下缺失文件
-  if (msg.kind === 'popup:checkIntegrity') {
-    (async () => {
-      const { index } = await chrome.storage.local.get('index');
-      const ids = Object.keys(index || {});
-      if (!ids.length) return sendResponse({ ok: true, checked: 0, fixed: 0, missing: 0, note: '本地还没有已跟踪的对话' });
-      let checked = 0, fixedFiles = 0, convWithMissing = 0, failed = 0;
-      for (const cid of ids) {
-        await chrome.storage.local.set({ allTask: { phase: 'check', total: ids.length, done: checked, cur: (index?.[cid]?.name || cid) } });
-        // archiveById 内部会重新抓取并只下载缺失/新版本文件(已存的会跳过)
-        const r = await archiveById(cid, { force: true });
-        if (!r.ok) { failed++; checked++; continue; }
-        const added = (r.files || 0);
-        if (added > 0) { convWithMissing++; fixedFiles += added; }
-        checked++;
-      }
-      await chrome.storage.local.remove('allTask');
-      sendResponse({ ok: true, checked, fixed: fixedFiles, convWithMissing, failed, total: ids.length });
+      sendResponse({ ok: true, saved, files });
     })();
     return true;
   }
@@ -659,22 +337,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const json = JSON.stringify(index || {}, null, 2);
       const r = await saveText(`${ROOT}/_index.json`, json, 'application/json');
       sendResponse(r);
-    })();
-    return true;
-  }
-
-  if (msg.kind === 'popup:exportLog') {
-    (async () => {
-      const { runlog } = await chrome.storage.local.get('runlog');
-      const lines = runlog || [];
-      if (!lines.length) return sendResponse({ ok: false, error: '暂无运行日志(先开启「调试日志」并复现一次)' });
-      const text = lines.map(l => {
-        const ts = new Date(l.t).toISOString().replace('T', ' ').slice(0, 19);
-        const ex = l.extra != null ? '  ' + JSON.stringify(l.extra) : '';
-        return `[${ts}] [${l.stage}] ${l.msg}${ex}`;
-      }).join('\n');
-      const r = await saveText(`${ROOT}/_runlog.txt`, text, 'text/plain');
-      sendResponse(r.ok ? { ok: true, count: lines.length } : r);
     })();
     return true;
   }

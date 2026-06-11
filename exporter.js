@@ -20,15 +20,6 @@ export function dirFor(conv) {
   return `${name}__${id}`;
 }
 
-// 对话辨识码:取 uuid 前 8 位(稳定、可读、足够区分)
-export function convHash(conv) {
-  return String(conv?.uuid ?? conv?.data?.uuid ?? 'unknown').replace(/[^0-9a-zA-Z-]/g, '').slice(0, 8) || 'unknown';
-}
-// files 下每个对话独立子目录:files/{对话码}/  —— 即使多对话文件汇到一处也不冲突
-export function filesDirFor(conv) {
-  return `files/${convHash(conv)}`;
-}
-
 // ---------- 活动分支重建 ----------
 // tree=True 时 chat_messages 含全部分支;沿 current_leaf_message_uuid 向上走出当前路径。
 export function activePath(data) {
@@ -94,19 +85,15 @@ export function blockToMd(b) {
   switch (b?.type) {
     case 'text':
       return String(b.text ?? '');
-    case 'thinking': {
-      const sums = Array.isArray(b.summaries) ? b.summaries.map(s => s && s.summary).filter(Boolean) : [];
-      const label = sums.length ? sums[sums.length - 1] : '思考过程';
-      const stageList = (sums.length > 1 && sums.length <= 3) ? sums.map(s => `- ${s}`).join('\n') + '\n\n' : '';
+    case 'thinking':
       return [
         '<details>',
-        `<summary>🧠 ${esc(label)}</summary>`,
+        '<summary>🧠 思考过程</summary>',
         '',
-        stageList + fence(b.thinking ?? b.text ?? ''),
+        fence(b.thinking ?? b.text ?? ''),
         '',
         '</details>'
       ].join('\n');
-    }
     case 'tool_use':
       return [
         '<details>',
@@ -173,12 +160,11 @@ export function buildMarkdown(conv) {
   const d = conv?.data || {};
   const { path, total } = activePath(d);
   const uuid = d.uuid ?? conv?.uuid ?? '';
-  const origin = (conv?.origin || 'https://claude.ai').replace(/\/$/, '');
   const head = [
     '---',
     `title: ${JSON.stringify(d.name ?? '未命名对话')}`,
     `uuid: ${uuid}`,
-    `url: ${origin}/chat/${uuid}`,
+    `url: https://claude.ai/chat/${uuid}`,
     d.model ? `model: ${d.model}` : null,
     `created_at: ${d.created_at ?? ''}`,
     `updated_at: ${d.updated_at ?? ''}`,
@@ -209,168 +195,46 @@ export function buildJson(conv) {
 }
 
 // ---------- 资源 URL 收集 ----------
-// 关键:不在这里补全域名(官方 claude.ai,中转站 claude.hk.cn 等各不同)。
-// 返回按"文件"去重的条目:{ key, name, path }。path 是相对路径,
-// 由页面端 bridge.js 按 location.origin 补全并展开成多个候选逐个尝试。
-export function collectAssets(data, orgId, convId) {
-  const byKey = new Map(); // uuid/path/url -> { name, path }
-  const norm = (u) => {
-    if (!u || typeof u !== 'string') return null;
-    u = u.replace(/\\\//g, '/').trim();
-    if (!u) return null;
-    const m = u.match(/^https?:\/\/[^/]+(\/.*)$/i);
-    if (m) u = m[1];
-    return u.startsWith('/') ? u : null;
-  };
-  const uuidOf = (p) => { const m = p && p.match(/\/files\/([0-9a-f-]{36})/i); return m ? m[1].toLowerCase() : null; };
-  const pathOf = (p) => { const m = p && p.match(/[?&]path=([^&]+)/i); return m ? decodeURIComponent(m[1]).toLowerCase() : null; };
-  const consider = (u, name) => {
-    const p = norm(u);
-    if (!p) return;
-    if (/\/thumbnail(\b|$|\?)/i.test(p)) return; // 缩略图不要
-    const fu = uuidOf(p);                 // 文件 uuid(图片类有)
-    const key = fu || pathOf(p) || p;     // 同一文件的去重 key
-    const prev = byKey.get(key);
-    if (!prev) { byKey.set(key, { name: name || null, path: p, uuid: fu || null }); return; }
-    if (name && !prev.name) prev.name = name;
-    if (fu && !prev.uuid) prev.uuid = fu;
-    const better = /\/(original|full|contents|download)(\b|$|\?)/i.test(p) && !/\/(original|full|contents|download)(\b|$|\?)/i.test(prev.path);
-    if (better) prev.path = p;
-  };
-  // 非图片文件(file_kind=blob 或有 path 字段,如 docx/json/md/zip)→ wiggle 下载接口
-  const considerBlob = (f, name) => {
-    const fp = f && typeof f.path === 'string' ? f.path : null;
-    if (fp && orgId && convId) {
-      consider(`/api/organizations/${orgId}/conversations/${convId}/wiggle/download-file?path=${encodeURIComponent(fp)}`, name);
-      return true;
-    }
-    return false;
+// 已知字段优先,再对整份 JSON 做一次正则兜底扫描,兼容字段命名漂移。
+export function collectAssets(data, orgId) {
+  const out = new Map(); // absUrl -> suggested file name | null
+  const add = (u, name) => {
+    if (!u || typeof u !== 'string') return;
+    if (/thumbnail/i.test(u)) return;
+    try {
+      const abs = new URL(u, 'https://claude.ai').href;
+      if (!out.has(abs)) out.set(abs, name ?? null);
+    } catch {}
   };
 
-  // 生成文件:按"轮次(消息)+ 路径"去重 —— 不同轮次的同名文件视为不同版本,各自保留
-  const considerByPath = (fp, name, uuid, round) => {
-    if (!fp || typeof fp !== 'string' || !orgId || !convId) return;
-    const u = `/api/organizations/${orgId}/conversations/${convId}/wiggle/download-file?path=${encodeURIComponent(fp)}`;
-    const p = norm(u);
-    if (!p) return;
-    const base = fp.split('/').pop() || name || null;  // 真实文件名(带扩展名)
-    const key = 'gen:' + (round||'') + ':' + fp.toLowerCase();  // 轮次+路径 为去重键
-    const prev = byKey.get(key);
-    if (!prev) { byKey.set(key, { name: base, path: p, uuid: uuid || null, subdir: round || null, round: round || null }); return; }
-    if (base && !prev.name) prev.name = base;
-  };
-
-  // 轮次目录名:r{消息序号}_{时分秒}_{uuid8},直观且唯一,保证不同轮次同名文件共存
-  const roundOf = (m, idx) => {
-    const u8 = String(m.uuid || '').replace(/[^0-9a-zA-Z]/g, '').slice(0, 8) || 'x';
-    let hms = '';
-    try { const d = new Date(m.created_at); if (!isNaN(d)) { const p = n => String(n).padStart(2, '0'); hms = `${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; } } catch {}
-    return `r${String(idx).padStart(2, '0')}_${hms || '000000'}_${u8}`;
-  };
-
-  const msgArr = data?.chat_messages || [];
-  for (let mi = 0; mi < msgArr.length; mi++) {
-    const m = msgArr[mi];
+  for (const m of (data?.chat_messages || [])) {
     for (const a of (m.attachments || [])) {
-      consider(a.preview_url, a.file_name);
-      consider(a.file_url, a.file_name);
-      consider(a.document_url, a.file_name);
-      considerBlob(a, a.file_name); // 附件带 path 时走 wiggle
-      const fid = a.file_uuid || a.id;
-      if (!a.preview_url && !a.file_url && !a.document_url && !a.path && fid && orgId) {
-        consider(`/api/${orgId}/files/${fid}/preview`, a.file_name);
-      }
+      add(a.preview_url, a.file_name);
+      add(a.file_url, a.file_name);
+      add(a.document_url, a.file_name);
     }
     const files = [
       ...(Array.isArray(m.files) ? m.files : []),
       ...(Array.isArray(m.files_v2) ? m.files_v2 : [])
     ];
     for (const f of files) {
-      const name = f.file_name || f.file_uuid || null;
-      const isImage = f.file_kind === 'image' || !!f.preview_url || !!(f.preview_asset && f.preview_asset.url);
-      consider(f.preview_url, name);
-      if (f.preview_asset && f.preview_asset.url) consider(f.preview_asset.url, name);
-      consider(f.file_url, name);
-      consider(f.url, name);
-      if (f.document && f.document.url) consider(f.document.url, name);
-      const gotBlob = !isImage && considerBlob(f, name);
-      const fid = f.file_uuid || f.uuid;
-      if (fid && orgId && isImage && !f.preview_url && !(f.preview_asset && f.preview_asset.url)) {
-        consider(`/api/${orgId}/files/${fid}/preview`, name);
-      }
-      if (!isImage && !gotBlob && fid && orgId) {
-        consider(`/api/${orgId}/files/${fid}/preview`, name);
-      }
-    }
-
-    // ★ Claude 生成的文件(present_files 的 local_resource):按"轮次"归档,版本共存
-    const round = roundOf(m, mi);
-    for (const b of (m.content || [])) {
-      if (b && b.type === 'tool_result') {
-        const c = b.content;
-        if (Array.isArray(c)) {
-          for (const item of c) {
-            if (item && item.type === 'local_resource' && item.file_path) {
-              considerByPath(item.file_path, item.name, item.uuid, round);
-            }
-          }
-        }
+      add(f.preview_url, f.file_name);
+      add(f.file_url, f.file_name);
+      if (f.document && f.document.url) add(f.document.url, f.file_name);
+      if (!f.preview_url && !f.file_url && f.file_uuid && orgId) {
+        add(`/api/organizations/${orgId}/files/${f.file_uuid}/contents`, f.file_name);
       }
     }
   }
 
-  // 兜底:扫描整份 JSON 里任何 /api/.../files|attachments|download-file 地址
   try {
     const s = JSON.stringify(data);
-    const re = /"((?:https?:\/\/[^"/]+)?\/api\/[^"]*?(?:\/files\/|\/attachments\/|download-file)[^"]*?)"/gi;
+    const re = /"((?:https:\/\/[a-z0-9.-]+)?\/api\/[^"]*?(?:\/files\/|\/attachments\/)[^"]*?)"/gi;
     let mt;
-    while ((mt = re.exec(s))) consider(mt[1]);
+    while ((mt = re.exec(s))) add(mt[1].replace(/\\\//g, '/'));
   } catch {}
 
-  // 返回数组:{ path(相对), name(建议名,可空), uuid(文件 uuid,可空) }
-  return [...byKey.values()];
-}
-
-// 给一批资源分配"文件夹内不冲突"的最终文件名(确定性,可跨次复现)。
-// 规则:
-//  - 先按 (推断名) 分组;
-//  - 组内只有 1 个、或多个但同 uuid(同一文件)→ 用原名;
-//  - 组内多个不同 uuid(真正不同的同名文件)→ 加 __{uuid8} 后缀区分;无 uuid 则加序号。
-// 入参 assets: [{path,name,uuid}]; nameFor(asset)->推断名(交给调用方,通常用 pickFileName)
-export function assignFileNames(assets, nameFor) {
-  const groups = new Map(); // baseName -> [asset...]
-  for (const a of assets) {
-    const nm = nameFor(a);
-    a._nm = nm;
-    if (!groups.has(nm)) groups.set(nm, []);
-    groups.get(nm).push(a);
-  }
-  const result = new Map(); // path -> finalName
-  for (const [nm, arr] of groups) {
-    const uuids = new Set(arr.map(a => a.uuid).filter(Boolean));
-    const sameFile = arr.every(a => a.uuid && a.uuid === arr[0].uuid); // 全同 uuid = 同一文件
-    if (arr.length === 1 || sameFile) {
-      for (const a of arr) result.set(a.path, nm);
-      continue;
-    }
-    // 多个不同文件同名 → 加后缀区分
-    const dot = nm.lastIndexOf('.');
-    const stem = dot > 0 ? nm.slice(0, dot) : nm;
-    const ext = dot > 0 ? nm.slice(dot) : '';
-    let seq = 0;
-    const usedSuffix = new Set();
-    for (const a of arr) {
-      let suffix;
-      if (a.uuid) suffix = a.uuid.slice(0, 8);
-      else { seq++; suffix = String(seq); }
-      // 防止极端情况后缀也撞
-      let cand = `${stem}__${suffix}${ext}`;
-      while (usedSuffix.has(cand)) { seq++; cand = `${stem}__${suffix}_${seq}${ext}`; }
-      usedSuffix.add(cand);
-      result.set(a.path, cand);
-    }
-  }
-  return result; // path -> 最终文件名
+  return out;
 }
 
 // 从响应头/建议名/URL 推断文件名,并按 content-type 补扩展名
@@ -395,20 +259,12 @@ export function pickFileName(contentDisposition, suggested, url, contentType) {
   }
   if (!name && suggested) name = String(suggested);
   if (!name) {
-    // wiggle 下载:?path=/mnt/.../xxx.docx → 取 basename
-    const pm = String(url || '').match(/[?&]path=([^&]+)/i);
-    if (pm) {
-      try { const dec = decodeURIComponent(pm[1]); name = dec.split('/').filter(Boolean).pop() || ''; } catch {}
-    }
-  }
-  if (!name) {
     try {
-      // base 仅用于把相对路径解析出 pathname,域名无关紧要
-      const p = new URL(url, 'http://x').pathname;
+      const p = new URL(url, 'https://claude.ai').pathname;
       const seg = p.split('/').filter(Boolean);
       name = seg[seg.length - 1] || 'file';
-      // /files/{uuid}/preview|contents|thumbnail 这类:取 uuid 段更有辨识度
-      if (/^(contents|download|preview|thumbnail|document_contents|download-file)$/i.test(name) && seg.length >= 2) {
+      // /files/{uuid}/contents 这类路径取 uuid 段更有辨识度
+      if (/^(contents|download|preview|document_contents)$/i.test(name) && seg.length >= 2) {
         name = seg[seg.length - 2];
       }
     } catch { name = 'file'; }

@@ -38,81 +38,25 @@ function bufToB64(buf) {
 
 const FULL_PARAMS = 'tree=True&rendering_mode=messages&render_all_tools=true';
 
-// 把传入地址(相对或绝对)规整为当前域名下的候选 URL 列表,逐个尝试
-function assetCandidates(input) {
-  let path = String(input || '').replace(/\\\//g, '/').trim();
-  if (!path) return [];
-  // 绝对 → 取 path+query;同域直接用,跨域也改挂到当前 origin(中转站通常同源代理)
-  const m = path.match(/^https?:\/\/[^/]+(\/.*)$/i);
-  if (m) path = m[1];
-  if (!path.startsWith('/')) return [location.origin + '/' + path];
-
-  const out = [];
-  const push = (p) => { const full = location.origin + p; if (!out.includes(full)) out.push(full); };
-
-  // 文件型:/api/.../files/{uuid}/{variant}  → 优先原始 variant,再补全质量/文档/下载/preview
-  const fm = path.match(/^(.*\/files\/[0-9a-f-]{36})(?:\/([\w-]+))?(\?.*)?$/i);
-  if (fm) {
-    const base = fm[1];
-    const q = fm[3] || '';
-    const orig = fm[2] ? fm[2].toLowerCase() : '';
-    // 1) 先用 JSON 里给的原始 variant(若不是 thumbnail/preview 这种缩略)——最可能就是对的
-    if (orig && orig !== 'thumbnail') push(base + '/' + fm[2] + q);
-    // 2) 全质量 / 文档类 / 下载 候选(覆盖 PDF=document_pdf、其它类型各自 variant)
-    for (const v of ['', '/original', '/full', '/document', '/document_pdf', '/contents', '/download', '/file', '/raw', '/preview']) {
-      push(base + v + q);
-    }
-    return out;
-  }
-
-  // wiggle 下载接口(非图片文件:docx/json/md/zip 等):带 ?path= 查询,原样透传
-  if (/\/wiggle\/download-file\?/i.test(path) || /download-file\?path=/i.test(path)) {
-    push(path);
-    return out;
-  }
-
-  // 其它(attachments 等):原样 + 去掉/补一个 contents
-  push(path);
-  if (!/[?&]/.test(path) && !/\/(contents|download)(\?|$)/i.test(path)) push(path.replace(/\/?(\?|$)/, '/contents$1'));
-  return out;
-}
-
-// 中转站路径为 /api/{org}/...,官方为 /api/organizations/{org}/...;两种都试
-function convUrlCandidates(orgId, convId) {
-  return [
-    `${location.origin}/api/organizations/${orgId}/chat_conversations/${convId}?${FULL_PARAMS}`,
-    `${location.origin}/api/${orgId}/chat_conversations/${convId}?${FULL_PARAMS}`
-  ];
-}
-
 async function fetchConvFull(orgId, convId) {
-  for (const u of convUrlCandidates(orgId, convId)) {
-    try {
-      const r = await fetch(u, { credentials: 'include', headers: { accept: 'application/json' } });
-      if (!r.ok) continue;
-      const j = await r.json().catch(() => null);
-      if (j && Array.isArray(j.chat_messages)) return { ok: true, orgId, data: j, url: u };
-    } catch {}
-  }
-  return { ok: false, error: 'all conversation endpoints failed' };
+  const u = `${location.origin}/api/organizations/${orgId}/chat_conversations/${convId}?${FULL_PARAMS}`;
+  const r = await fetch(u, { credentials: 'include', headers: { accept: 'application/json' } });
+  if (!r.ok) return { ok: false, status: r.status };
+  const j = await r.json().catch(() => null);
+  if (!j || !Array.isArray(j.chat_messages)) return { ok: false, error: 'bad payload' };
+  return { ok: true, orgId, data: j, url: u };
 }
 
 async function listOrgIds() {
-  for (const u of [`${location.origin}/api/organizations`, `${location.origin}/api/bootstrap`]) {
-    try {
-      const r = await fetch(u, { credentials: 'include', headers: { accept: 'application/json' } });
-      if (!r.ok) continue;
-      const j = await r.json().catch(() => null);
-      let ids = [];
-      if (Array.isArray(j)) ids = j.map(o => o && o.uuid).filter(Boolean);
-      else if (j && Array.isArray(j.organizations)) ids = j.organizations.map(o => o && o.uuid).filter(Boolean);
-      else if (j && j.account && Array.isArray(j.account.memberships)) {
-        ids = j.account.memberships.map(m => m && m.organization && m.organization.uuid).filter(Boolean);
-      }
-      if (ids.length) return ids;
-    } catch {}
-  }
-  return [];
+  try {
+    const r = await fetch(`${location.origin}/api/organizations`, {
+      credentials: 'include', headers: { accept: 'application/json' }
+    });
+    if (!r.ok) return [];
+    const j = await r.json().catch(() => null);
+    if (Array.isArray(j)) return j.map(o => o && o.uuid).filter(Boolean);
+    return [];
+  } catch { return []; }
 }
 
 // ---------- 响应后台请求 ----------
@@ -124,26 +68,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.kind === 'fetchAsset') {
     (async () => {
       try {
-        // msg.url 可能是相对路径(/api/...)或绝对地址;统一按当前真实域名补全
-        const tried = [];
-        for (const cand of assetCandidates(msg.url)) {
-          tried.push(cand);
-          let r;
-          try { r = await fetch(cand, { credentials: 'include' }); }
-          catch { continue; }
-          if (!r.ok) continue;
-          const ct = r.headers.get('content-type') || '';
-          // 命中 HTML 多半是登录页/错误页,不是文件 —— 跳过试下一个候选
-          if (/text\/html/i.test(ct)) continue;
-          const cd = r.headers.get('content-disposition') || '';
-          const buf = await r.arrayBuffer();
-          if (buf.byteLength === 0) continue;
-          if (buf.byteLength > 48 * 1024 * 1024) {
-            return sendResponse({ ok: false, error: 'file too large (>48MB)' });
-          }
-          return sendResponse({ ok: true, ct, cd, b64: bufToB64(buf), from: cand });
+        const r = await fetch(msg.url, { credentials: 'include' });
+        if (!r.ok) return sendResponse({ ok: false, status: r.status });
+        const ct = r.headers.get('content-type') || '';
+        const cd = r.headers.get('content-disposition') || '';
+        const buf = await r.arrayBuffer();
+        if (buf.byteLength > 48 * 1024 * 1024) {
+          return sendResponse({ ok: false, error: 'file too large (>48MB)' });
         }
-        sendResponse({ ok: false, error: 'no candidate succeeded', tried });
+        sendResponse({ ok: true, ct, cd, b64: bufToB64(buf) });
       } catch (e) {
         sendResponse({ ok: false, error: String(e) });
       }

@@ -187,6 +187,18 @@
 ### ✨ 新增（Added）
 - 英文版 新手使用手册、快速上手卡片、使用说明。
 - 双语文档覆盖：中英文各一份完整文档体系。
+## [2.9.0] - 2026-06-12
+
+### 🔧 改进（Changed）
+- **目录结构重构**：扩展代码独立为 `extension/` 目录，`viewer/` 和 `tools/` 平级分离。
+- organizer 工具从扩展内移至独立 `tools/` 目录。
+- `整理手册` → `ORGANIZING_GUIDE.md`（英文化）。
+- `整理报告` → `cleanup-report.html`（英文化，保留在 `tools/` 和扩展内各一份）。
+
+### ✨ 新增（Added）
+- `GETTING_STARTED.md` 上手文档。
+- `README-FIRST.txt` 快速入门。
+- `docs/releases/v2.9.0.md` 版本发布说明。
 
 ---
 

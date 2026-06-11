@@ -91,11 +91,35 @@ function stopAllTaskPoll() { if (_allTaskTimer) { clearInterval(_allTaskTimer); 
 async function refresh() {
   try {
     const r = await send({ kind: 'popup:getState' });
-    if (r && r.ok) { paintSettings(r.settings); paintState(r); }
+    if (r && r.ok) { paintSettings(r.settings); paintState(r); paintBind(r.direct); paintSpeed(r.settings); }
     await paintProgress();
   } catch (e) {
     toast('err', '无法连接后台,请重载扩展');
   }
+}
+
+// 直写模式绑定状态
+function paintBind(d) {
+  const bar = $('bindBar'), txt = $('bindTxt'), bBind = $('btnBind'), bScan = $('btnRescan');
+  if (!bar) return;
+  bar.classList.remove('ok', 'warn');
+  const st = d && d.status;
+  if (st === 'granted') {
+    bar.classList.add('ok');
+    txt.textContent = `直写模式:已绑定「${d.name || 'ClaudeArchive'}」· 零下载记录 · 文件夹即跟踪`;
+    bBind.style.display = 'none'; bScan.style.display = '';
+  } else if (st === 'need-reauth') {
+    bar.classList.add('warn');
+    txt.textContent = '直写模式:需重新授权(浏览器重启后需确认一次)';
+    bBind.style.display = ''; bBind.textContent = '重新授权'; bScan.style.display = 'none';
+  } else {
+    txt.textContent = '直写模式:未绑定(当前用下载方式保存)';
+    bBind.style.display = ''; bBind.textContent = '绑定文件夹'; bScan.style.display = 'none';
+  }
+}
+function paintSpeed(s) {
+  const sel = $('maxSpeed'); if (!sel) return;
+  sel.value = String(Number(s && s.maxSpeedMBps || 0));
 }
 
 // 绑定开关
@@ -112,6 +136,30 @@ for (const k of TOGGLES) {
 
 document.addEventListener('DOMContentLoaded', () => {
   try { $('ver').textContent = 'v' + chrome.runtime.getManifest().version; } catch {}
+
+  // 绑定/重新授权:打开查看器的绑定引导页(弹窗里直接选目录会因失焦关闭而中断)
+  $('btnBind') && $('btnBind').addEventListener('click', () => {
+    try { chrome.tabs.create({ url: chrome.runtime.getURL('viewer.html') + '#bind' }); window.close(); } catch {}
+  });
+  // 从已绑定文件夹重新扫描,恢复跟踪索引
+  $('btnRescan') && $('btnRescan').addEventListener('click', async () => {
+    toast('run', '正在扫描绑定文件夹…');
+    const r = await send({ kind: 'popup:scanFolder' });
+    if (r && r.ok) { toast('ok', `扫描完成:发现 ${r.found || 0} 个对话存档(新增 ${r.added || 0})`); refresh(); }
+    else toast('err', r?.error === 'need-reauth' ? '需先重新授权文件夹' : (r?.error || '扫描失败'));
+  });
+  // 抓取限速
+  $('maxSpeed') && $('maxSpeed').addEventListener('change', async (e) => {
+    const r = await send({ kind: 'popup:setSettings', patch: { maxSpeedMBps: Number(e.target.value) || 0 } });
+    if (r && r.ok) toast('ok', Number(e.target.value) ? `限速 ${e.target.value} MB/s` : '已取消限速');
+  });
+  // GitHub Star / 联系作者
+  $('btnStar') && $('btnStar').addEventListener('click', () => {
+    try { chrome.tabs.create({ url: 'https://github.com/CJerryR/claude-archive' }); } catch {}
+  });
+  $('btnMail') && $('btnMail').addEventListener('click', () => {
+    try { chrome.tabs.create({ url: 'mailto:2513100@mail.nankai.edu.cn?subject=' + encodeURIComponent('Claude Archive 反馈') }); } catch {}
+  });
 
   $('btnSaveCurrent').addEventListener('click', async () => {
     toast('run', '正在抓取当前对话…');

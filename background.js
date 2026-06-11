@@ -36,6 +36,7 @@ const DEFAULT_SETTINGS = {
   refetchFull: true,    // 完成后用全参数补全抓取(确保 thinking/tool 完整)
   keepHistory: true,    // 保留每次抓取的 JSON 历史快照(便于多版本合并)
   silentDownload: true, // 静默下载:完成后从浏览器下载记录移除(不删文件),避免刷屏
+  maxSpeedMBps: 0,      // 抓取限速(平均 MB/s):0=不限,1/5/20 档
   debugLog: false       // 调试日志:在 Service Worker 控制台打印「追踪→保存」每一步
 };
 
@@ -70,8 +71,8 @@ async function ensureSettings() {
   const { settings } = await chrome.storage.local.get('settings');
   if (!settings) await chrome.storage.local.set({ settings: DEFAULT_SETTINGS });
 }
-chrome.runtime.onInstalled.addListener(ensureSettings);
-chrome.runtime.onStartup.addListener(ensureSettings);
+chrome.runtime.onInstalled.addListener(() => { ensureSettings(); scanArchiveFolder().catch(() => {}); });
+chrome.runtime.onStartup.addListener(() => { ensureSettings(); scanArchiveFolder().catch(() => {}); });
 
 // ---------------- 统计 ----------------
 async function bumpStats(patch) {
@@ -144,6 +145,109 @@ function versionedName(baseName, versionIndex) {
   if (versionIndex <= 1) return baseName;
   const { stem, ext } = splitName(baseName);
   return `${stem}__v${versionIndex}${ext}`;
+}
+
+// ---------------- 直写磁盘(File System Access)----------------
+// 用户在 viewer 里绑定 ClaudeArchive 文件夹 → 句柄存 IndexedDB → 本 SW 直接读写磁盘:
+// 零浏览器下载记录、文件夹即跟踪记录(启动扫描重建索引)。权限失效自动退回下载模式。
+const IDB_NAME = 'cca', IDB_STORE = 'handles';
+function idbOpen() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(IDB_NAME, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore(IDB_STORE);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function idbGet(key) {
+  try { const db = await idbOpen(); return await new Promise((res, rej) => { const t = db.transaction(IDB_STORE).objectStore(IDB_STORE).get(key); t.onsuccess = () => res(t.result); t.onerror = () => rej(t.error); }); }
+  catch (e) { return null; }
+}
+async function idbSet(key, val) {
+  try { const db = await idbOpen(); return await new Promise((res, rej) => { const t = db.transaction(IDB_STORE, 'readwrite').objectStore(IDB_STORE).put(val, key); t.onsuccess = () => res(true); t.onerror = () => rej(t.error); }); }
+  catch (e) { return false; }
+}
+// 取根句柄:granted 才返回;'prompt' 表示需在页面里重新授权一次(SW 无用户手势,无法自行请求)
+async function getRootHandle() {
+  try {
+    const h = await idbGet('root');
+    if (!h) return { handle: null, status: 'unbound', name: '' };
+    let p = 'prompt';
+    try { p = await h.queryPermission({ mode: 'readwrite' }); } catch (e) {}
+    return { handle: p === 'granted' ? h : null, status: p === 'granted' ? 'granted' : 'need-reauth', name: h.name || '' };
+  } catch (e) { return { handle: null, status: 'unbound', name: '' }; }
+}
+// 去掉相对路径开头的 ClaudeArchive/(绑定的就是该文件夹本身)
+function stripRoot(relPath) {
+  const p = relPath.replace(/\\/g, '/').replace(/^\/+/, '');
+  return p.startsWith(ROOT + '/') ? p.slice(ROOT.length + 1) : p;
+}
+// 沿路径逐级取/建目录,写入文件(覆盖语义;资产名由 decideName 保证全新,正本/快照本就该覆盖)
+async function writeViaHandle(root, relPath, blob) {
+  const parts = stripRoot(relPath).split('/').filter(Boolean);
+  const fileName = parts.pop();
+  let dir = root;
+  for (const seg of parts) dir = await dir.getDirectoryHandle(seg, { create: true });
+  const fh = await dir.getFileHandle(fileName, { create: true });
+  const w = await fh.createWritable();
+  await w.write(blob);
+  await w.close();
+  return true;
+}
+// 列出某子目录下的真实文件名(不存在返回空集)
+async function listDirDirect(root, relDir) {
+  const out = new Set();
+  try {
+    const parts = stripRoot(relDir).split('/').filter(Boolean);
+    let dir = root;
+    for (const seg of parts) dir = await dir.getDirectoryHandle(seg);
+    for await (const [name, h] of dir.entries()) if (h.kind === 'file') out.add(name);
+  } catch (e) {}
+  return out;
+}
+// 读取一个对话目录里的 conversation.json 元信息(大小防爆保护)
+async function readConvMeta(dirHandle) {
+  try {
+    const fh = await dirHandle.getFileHandle('conversation.json');
+    const f = await fh.getFile();
+    if (f.size > 40 * 1024 * 1024) return null;
+    const j = JSON.parse(await f.text());
+    if (!j || !j.uuid) return null;
+    return { uuid: j.uuid, name: j.name || '', updated_at: j.updated_at || '', msgs: Array.isArray(j.chat_messages) ? j.chat_messages.length : 0 };
+  } catch (e) { return null; }
+}
+// 扫描绑定文件夹:每个 {名}__{uuid8} 子目录读 conversation.json → 重建持久索引。
+// 文件夹在 = 跟踪在,重装扩展/换浏览器配置后无需逐个点开对话。
+let _scanning = false;
+async function scanArchiveFolder(force = false) {
+  if (_scanning) return { ok: false, error: 'busy' };
+  const { lastScan } = await chrome.storage.local.get('lastScan');
+  if (!force && lastScan && Date.now() - lastScan < 10 * 60 * 1000) return { ok: true, skipped: true };
+  const { handle, status } = await getRootHandle();
+  if (!handle) return { ok: false, error: status };
+  _scanning = true;
+  try {
+    const { index } = await chrome.storage.local.get('index');
+    const idx = index || {};
+    let found = 0, added = 0;
+    for await (const [name, h] of handle.entries()) {
+      if (h.kind !== 'directory') continue;
+      if (name === '_trash' || name.startsWith('.')) continue;
+      if (!/__[0-9a-f]{8}$/i.test(name)) continue;
+      const meta = await readConvMeta(h);
+      if (!meta) continue;
+      found++;
+      if (!idx[meta.uuid]) added++;
+      idx[meta.uuid] = Object.assign({}, idx[meta.uuid], {
+        name: meta.name, updated_at: meta.updated_at, msgs: meta.msgs, dir: name, fromDisk: true
+      });
+    }
+    await chrome.storage.local.set({ index: idx, lastScan: Date.now() });
+    logLine('scan', `本地文件夹扫描完成:发现 ${found} 个对话存档(新增 ${added} 个进索引)`);
+    return { ok: true, found, added, total: Object.keys(idx).length };
+  } catch (e) {
+    return { ok: false, error: String(e && e.message || e) };
+  } finally { _scanning = false; }
 }
 
 // ---------------- 下载 ----------------
@@ -241,11 +345,29 @@ async function maybeEraseDownload(id) {
     }, 1500);
   } catch {}
 }
+// base64 → Uint8Array
+function b64ToU8(b64) {
+  const bin = atob(b64);
+  const u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return u;
+}
+// 统一落盘:优先直写绑定文件夹(零下载记录);未绑定/失败 → 退回浏览器下载(静默)
 async function saveText(path, text, mime = 'text/plain') {
+  const { handle } = await getRootHandle();
+  if (handle) {
+    try { await writeViaHandle(handle, path, new Blob([String(text == null ? '' : text)], { type: mime })); return { ok: true, direct: true }; }
+    catch (e) { logLine('write', '直写失败,退回下载:' + (e && e.message || e), { path }); }
+  }
   const url = await toDataUrl({ kind: 'text', text, mime });
   return downloadDataUrl(url, path);
 }
 async function saveB64(path, b64, mime = 'application/octet-stream') {
+  const { handle } = await getRootHandle();
+  if (handle) {
+    try { await writeViaHandle(handle, path, new Blob([b64ToU8(b64)], { type: mime })); return { ok: true, direct: true }; }
+    catch (e) { logLine('write', '直写失败,退回下载:' + (e && e.message || e), { path }); }
+  }
   const url = await toDataUrl({ kind: 'b64', b64, mime });
   return downloadDataUrl(url, path);
 }
@@ -384,6 +506,49 @@ async function archive(convId, { force = false } = {}) {
     for (const rel of Object.values(savedRec)) {
       if (typeof rel === 'string') { const b = rel.split('/').pop(); if (b) diskNames.add(b); }
     }
+    // 直写模式:再并入磁盘上真实存在的文件名(文件夹即真相);
+    // 若 verMap 丢失(重装扩展)而磁盘有文件 → 现场读文件重建哈希表,恢复"同内容跳过"能力
+    const { handle: rootHandle } = await getRootHandle();
+    if (rootHandle) {
+      const real = await listDirDirect(rootHandle, `${base}/${convDir}`);
+      for (const n of real) diskNames.add(n);
+      const knownNames = new Set(); for (const arr of Object.values(verMap)) for (const v of arr) if (v && v.name) knownNames.add(v.name);
+      const unknown = [...real].filter(n => !knownNames.has(n));
+      if (unknown.length) {
+        try {
+          const parts = stripRoot(`${base}/${convDir}`).split('/').filter(Boolean);
+          let dirH = rootHandle; for (const seg of parts) dirH = await dirH.getDirectoryHandle(seg);
+          for (const n of unknown) {
+            try {
+              const f = await (await dirH.getFileHandle(n)).getFile();
+              let hash = null;
+              if (f.size <= 100 * 1024 * 1024) {
+                const buf = await f.arrayBuffer();
+                const h = await crypto.subtle.digest('SHA-256', buf);
+                hash = [...new Uint8Array(h)].map(x => x.toString(16).padStart(2, '0')).join('');
+              }
+              // 反推 baseName(剥 __vN)归入 verMap
+              const m = n.match(/^(.*)__v(\d+)(\.[^.]*)?$/);
+              const baseN = m ? (m[1] + (m[3] || '')) : n;
+              (verMap[baseN] || (verMap[baseN] = [])).push({ hash, name: n });
+              if (hash) seenHashes.add(hash);
+            } catch (e) {}
+          }
+          logLine('rebuild', `从磁盘重建版本表:${unknown.length} 个文件已纳入(${convDir})`);
+        } catch (e) {}
+      }
+    }
+
+    // 限速:按设置的平均速率给抓取配速(0=不限)
+    const limitMBps = Number(settings.maxSpeedMBps || 0);
+    const paceStart = Date.now(); let paceBytes = 0;
+    const pace = async (addBytes) => {
+      if (!limitMBps) return;
+      paceBytes += addBytes;
+      const shouldMs = paceBytes / (limitMBps * 1048576) * 1000;
+      const wait = shouldMs - (Date.now() - paceStart);
+      if (wait > 30) await new Promise(r => setTimeout(r, Math.min(wait, 5000)));
+    };
 
     // 决定一个待存内容应使用的文件名;返回 null 表示"无需保存"(同哈希已存)
     const decideName = (baseName, hash) => {
@@ -407,6 +572,7 @@ async function archive(convId, { force = false } = {}) {
       for (const a of assets) {
         const resp = await askTab(tabId, { kind: 'fetchAsset', url: a.path });
         if (!resp || !resp.ok || !resp.b64) continue;
+        await pace(Math.floor(resp.b64.length * 0.75));      // 限速配速(按真实字节)
         const hash = await sha256OfB64(resp.b64);
         if (hash && seenHashes.has(hash)) continue;          // 规则3:同哈希不存
         const baseName = pickFileName(resp.cd, a.name, a.path, resp.ct);
@@ -575,13 +741,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
         } catch {}
       }
+      const dh = await getRootHandle();
       sendResponse({
         ok: true, settings, stats: stats || {},
         convCount: Object.keys(index || {}).length,
         tracked: Object.keys(index || {}).length, // 已跟踪=持久索引里的对话数(刷新不清零)
-        current
+        current,
+        direct: { status: dh.status, name: dh.name }   // unbound | need-reauth | granted
       });
     })();
+    return true;
+  }
+
+  // viewer 完成文件夹绑定 → 校验权限并立即扫描重建索引
+  if (msg.kind === 'viewer:bound') {
+    (async () => {
+      const r = await scanArchiveFolder(true);
+      const dh = await getRootHandle();
+      sendResponse({ ok: dh.status === 'granted', status: dh.status, name: dh.name, scan: r });
+    })();
+    return true;
+  }
+
+  // 手动触发本地文件夹扫描(从文件夹恢复跟踪索引)
+  if (msg.kind === 'popup:scanFolder') {
+    (async () => { sendResponse(await scanArchiveFolder(true)); })();
     return true;
   }
 

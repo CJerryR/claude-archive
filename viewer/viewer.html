@@ -92,9 +92,6 @@
     font-size:11.5px;color:var(--text-3);display:flex;align-items:center;gap:8px;
   }
   .side-foot .dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
-  .side-foot .foot-links{margin-left:auto;display:flex;gap:10px}
-  .side-foot .foot-links a{color:var(--text-3);text-decoration:none;font-size:11px}
-  .side-foot .foot-links a:hover{color:var(--accent)}
 
   /* ---------- 主区 ---------- */
   .main{flex:1;display:flex;flex-direction:column;height:100vh;min-width:0;background:var(--bg)}
@@ -453,11 +450,6 @@
         选 JSON(可多选合并)
       </button>
       <div class="btn-hint">只选 JSON 文件；多份同一对话自动合并</div>
-      <button class="load-btn load-btn-sub" id="bindBtn" style="display:none" title="把 ClaudeArchive 文件夹绑定给插件：之后文件直接写进该文件夹（零下载记录），且文件夹在=跟踪在，重装插件不用逐个点开对话">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" stroke-linecap="round"/></svg>
-        绑定到插件(直写模式)
-      </button>
-      <div class="btn-hint" id="bindHint" style="display:none">授权一次，文件直写文件夹、零下载记录、索引自动恢复</div>
       <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
       <input type="file" id="jsonInput" accept=".json,application/json" multiple hidden>
     </div>
@@ -471,13 +463,7 @@
       <div class="side-empty">点上方「选择存档文件夹」<br>载入你的 ClaudeArchive</div>
     </nav>
 
-    <div class="side-foot">
-      <span class="dot"></span><span id="count">尚未载入</span>
-      <span class="foot-links">
-        <a href="https://github.com/CJerryR/claude-archive" target="_blank" rel="noopener" title="觉得好用?到 GitHub 点个 Star 支持作者">⭐ Star</a>
-        <a href="mailto:2513100@mail.nankai.edu.cn?subject=Claude%20Archive%20反馈" title="一键给作者发邮件">✉️ 联系作者</a>
-      </span>
-    </div>
+    <div class="side-foot"><span class="dot"></span><span id="count">尚未载入</span></div>
   </aside>
 
   <main class="main">
@@ -1336,38 +1322,8 @@ function toast(msg){
   clearTimeout(_tt); _tt=setTimeout(()=>t.classList.remove('show'),2400);
 }
 
-/* ---------- 绑定到插件(直写模式):句柄存 IndexedDB,SW 直接读写磁盘 ---------- */
-const IDB_NAME='cca', IDB_STORE='handles';
-function idbOpen(){ return new Promise((res,rej)=>{ const r=indexedDB.open(IDB_NAME,1); r.onupgradeneeded=()=>r.result.createObjectStore(IDB_STORE); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
-async function idbSet(key,val){ const db=await idbOpen(); return new Promise((res,rej)=>{ const t=db.transaction(IDB_STORE,'readwrite').objectStore(IDB_STORE).put(val,key); t.onsuccess=()=>res(true); t.onerror=()=>rej(t.error); }); }
-const inExtension = !!(window.chrome && chrome.runtime && chrome.runtime.id);
-
-async function bindFolder(){
-  if(!window.showDirectoryPicker){ toast('当前环境不支持文件夹绑定'); return; }
-  let handle;
-  try{
-    handle = await window.showDirectoryPicker({ id:'claude-archive-root', mode:'readwrite' });
-  }catch(err){ if(err && err.name==='AbortError') return; toast('授权失败:'+(err&&err.message||err)); return; }
-  try{
-    await idbSet('root', handle);
-  }catch(e){ toast('保存绑定失败:'+(e&&e.message||e)); return; }
-  // 通知插件后台校验 + 扫描重建索引
-  let scanMsg='';
-  if(inExtension){
-    try{
-      const r = await chrome.runtime.sendMessage({ kind:'viewer:bound' });
-      if(r && r.ok && r.scan && r.scan.ok) scanMsg = ` · 已从文件夹恢复 ${r.scan.found||0} 个对话索引`;
-      else if(r && !r.ok) scanMsg = ' · 插件端未生效(状态:'+(r.status||'?')+')';
-    }catch(e){}
-  }
-  toast('已绑定「'+(handle.name||'文件夹')+'」直写模式'+scanMsg);
-  // 顺便把该文件夹载入查看器浏览
-  try{
-    const files = await readDirRecursive(handle, handle.name);
-    await handleFiles(files);
-  }catch(e){}
-}
-
+/* ---------- 选择文件夹:优先 File System Access API(在 chrome-extension:// 页里可靠),
+   不可用时回退到 webkitdirectory input ---------- */
 async function pickFolder(){
   // 优先用 showDirectoryPicker(Chrome/Edge 支持;扩展页里比隐藏 input 更可靠)
   if(window.showDirectoryPicker){
@@ -1422,17 +1378,6 @@ $('#reloadBtn').addEventListener('click',pickFolder);
 $('#folderInput').addEventListener('change',e=>handleFiles(e.target.files));
 $('#jsonInput').addEventListener('change',e=>handleFiles(e.target.files));
 $('#searchInput').addEventListener('input',e=>{ state.query=e.target.value; renderSidebar(); });
-// 扩展环境:显示"绑定到插件"按钮;带 #bind 打开时给出醒目引导
-if(inExtension && window.showDirectoryPicker){
-  $('#bindBtn').style.display='';
-  $('#bindHint').style.display='';
-  $('#bindBtn').addEventListener('click',bindFolder);
-  if(location.hash==='#bind'){
-    toast('请点击左侧「绑定到插件(直写模式)」选择你的 ClaudeArchive 文件夹');
-    $('#bindBtn').style.outline='2px solid var(--accent)';
-    setTimeout(()=>{ $('#bindBtn').style.outline=''; }, 6000);
-  }
-}
 
 // 代码块"一键复制"(事件委托)
 document.addEventListener('click',(e)=>{

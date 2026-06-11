@@ -238,6 +238,19 @@ export function collectAssets(data, orgId, convId) {
     return false;
   };
 
+  // 用 file_path 生成 wiggle 下载 URL(Claude 生成文件 / 任意容器内文件)
+  // 按 path 去重:同一路径就是同一个文件位置(服务器只保留当前版本)
+  const considerByPath = (fp, name, uuid) => {
+    if (!fp || typeof fp !== 'string' || !orgId || !convId) return;
+    const u = `/api/organizations/${orgId}/conversations/${convId}/wiggle/download-file?path=${encodeURIComponent(fp)}`;
+    const p = norm(u);
+    if (!p) return;
+    const key = 'path:' + fp.toLowerCase();   // 以路径为去重键
+    const prev = byKey.get(key);
+    if (!prev) { byKey.set(key, { name: name || fp.split('/').pop() || null, path: p, uuid: uuid || null }); return; }
+    if (name && !prev.name) prev.name = name;
+  };
+
   for (const m of (data?.chat_messages || [])) {
     for (const a of (m.attachments || [])) {
       consider(a.preview_url, a.file_name);
@@ -271,6 +284,21 @@ export function collectAssets(data, orgId, convId) {
       // 非图片又没 path 兜底 → 退到 /files/preview
       if (!isImage && !gotBlob && fid && orgId) {
         consider(`/api/${orgId}/files/${fid}/preview`, name);
+      }
+    }
+
+    // ★ Claude 生成的文件:藏在 present_files 等工具的 tool_result.local_resource 里
+    //   (m.files 通常为空,真正的产出在这里)。用 file_path 走 wiggle 下载。
+    for (const b of (m.content || [])) {
+      if (b && b.type === 'tool_result') {
+        const c = b.content;
+        if (Array.isArray(c)) {
+          for (const item of c) {
+            if (item && item.type === 'local_resource' && item.file_path) {
+              considerByPath(item.file_path, item.name, item.uuid);
+            }
+          }
+        }
       }
     }
   }

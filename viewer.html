@@ -305,6 +305,7 @@
 
   /* ---------- 附件 / 文件 ---------- */
   .chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
+  .chips-label{width:100%;font-family:var(--sans);font-size:11px;color:var(--text-3);margin:2px 0 -2px;font-weight:600}
   .chip{
     display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border-radius:9px;
     background:var(--bg-elev);border:1px solid var(--border-soft);color:var(--text-2);
@@ -317,8 +318,30 @@
   a.chip:hover{color:var(--text);border-color:var(--border)}
   a.chip:hover .cdl{color:var(--accent)}
   .chip.chip-img{flex-direction:column;align-items:stretch;max-width:264px;padding:7px}
-  .chip.chip-img img{max-width:100%;max-height:230px;border-radius:7px;display:block;object-fit:contain}
+  .chip.chip-img img{max-width:100%;max-height:230px;border-radius:7px;display:block;object-fit:contain;cursor:zoom-in}
   .chip.chip-img .cap{display:flex;align-items:center;gap:6px;margin-top:7px;color:var(--text-3)}
+  /* 文件行:点击区 + 独立下载按钮 */
+  .chip.chip-file,.chip.chip-missing{padding:0;overflow:hidden}
+  .chip-open{display:flex;align-items:center;gap:7px;padding:7px 4px 7px 11px;color:var(--text-2);text-decoration:none;flex:1;min-width:0;cursor:pointer}
+  .chip-open:hover{color:var(--text)}
+  .chip-open .cname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chip .cfile,.chip-open .cfile{flex:none;width:16px;height:16px;color:var(--accent)}
+  .chip-dl{flex:none;display:grid;place-items:center;width:30px;align-self:stretch;color:var(--text-3);
+    border-left:1px solid var(--border-soft);text-decoration:none;cursor:pointer}
+  .chip-dl:hover{color:var(--accent);background:var(--hover)}
+  .chip-dl svg,.chip-img .cdl{width:15px;height:15px}
+  .chip.chip-img .cap .cname{flex:1}
+  .chip.chip-img .chip-dl{border:0;width:24px;align-self:auto;border-radius:6px}
+  .chip-missing{opacity:.55;cursor:default}
+  .chip-missing .cname{padding:7px 11px;display:flex;align-items:center;gap:7px}
+  /* 图片灯箱 */
+  #cca-lightbox{position:fixed;inset:0;z-index:200;display:none;flex-direction:column;align-items:center;justify-content:center;
+    background:rgba(0,0,0,.82);cursor:zoom-out;padding:30px;gap:12px}
+  #cca-lightbox img{max-width:92vw;max-height:82vh;border-radius:8px;box-shadow:0 12px 50px rgba(0,0,0,.5)}
+  #cca-lightbox .lb-cap{color:#eee;font-family:var(--sans);font-size:13px}
+  #cca-lightbox .lb-dl{color:#fff;background:var(--accent);padding:7px 16px;border-radius:8px;font-family:var(--sans);
+    font-size:13px;font-weight:600;text-decoration:none;cursor:pointer}
+  #cca-lightbox .lb-dl:hover{filter:brightness(1.08)}
 
   /* ---------- 空状态 ---------- */
   .empty{
@@ -704,35 +727,72 @@ function makeChip(obj, conv){
   const name = obj.file_name || obj.file_uuid || '文件';
   const uuid = obj.file_uuid || obj.uuid || null;
   const url = resolveAsset(conv, obj.file_name, uuid);
-  // 图片:内嵌预览 + 点击可下载
-  if(url && /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(name)){
-    const a=ce('a','chip chip-img'); a.href=url; a.download=name;
-    const img=ce('img'); img.src=url; img.alt=name; a.appendChild(img);
-    const cap=ce('div','cap'); cap.innerHTML=FILE_ICON+'<span class="cname">'+esc(name)+'</span>'+DL_ICON;
-    a.appendChild(cap);
+  const isImg = /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(name);
+
+  // 独立下载按钮(右键/点击图标才下载),不影响主点击
+  const dlBtn = (href, fname) => {
+    const a=ce('a','chip-dl'); a.href=href; a.download=fname; a.title='下载';
+    a.innerHTML=DL_ICON;
+    a.addEventListener('click', e=>e.stopPropagation());
     return a;
+  };
+
+  // 图片:缩略图,点击开灯箱预览(不下载),右下角小下载按钮
+  if(url && isImg){
+    const wrap=ce('div','chip chip-img');
+    const img=ce('img'); img.src=url; img.alt=name;
+    img.addEventListener('click', ()=>openLightbox(url, name));
+    wrap.appendChild(img);
+    const cap=ce('div','cap');
+    cap.appendChild(ce('span','cname',esc(name)));
+    cap.appendChild(dlBtn(url, name));
+    wrap.appendChild(cap);
+    return wrap;
   }
-  // 有实际文件:可查看的(pdf/html/txt/json/csv/md)新标签打开,其余触发下载
+  // 其它已存在的文件:点击预览(可视类型新标签打开;不可视如 zip/docx 也尝试新标签,浏览器自行处理),旁边独立下载
   if(url){
     const viewable=/\.(pdf|html?|txt|json|csv|md|svg)$/i.test(name);
-    const a=ce('a','chip'); a.href=url;
-    if(viewable){ a.target='_blank'; a.rel='noopener'; } else { a.download=name; }
-    a.title = viewable ? '点击在新标签打开 · 右键可下载' : '点击下载';
-    a.innerHTML=FILE_ICON+'<span class="cname">'+esc(name)+'</span>'+DL_ICON;
-    return a;
+    const wrap=ce('div','chip chip-file');
+    const open=ce('a','chip-open'); open.href=url;
+    open.target='_blank'; open.rel='noopener';
+    open.title = viewable ? '点击打开预览' : '点击打开(浏览器可能直接下载此类型)';
+    open.innerHTML=FILE_ICON+'<span class="cname">'+esc(name)+'</span>';
+    wrap.appendChild(open);
+    wrap.appendChild(dlBtn(url, name));
+    return wrap;
   }
-  // 无文件但有提取文本(上传的文档):生成可下载 .txt
+  // 仅有提取文本(上传文档无实际文件)→ 预览文本 + 下载 .txt
   const text = (typeof obj.extracted_content==='string' && obj.extracted_content) ? obj.extracted_content
              : (obj.file_kind==='text' && typeof obj.content==='string' ? obj.content : null);
   if(text){
-    const dn=(String(name).replace(/\.[^.]+$/,'')||name)+'.txt';
-    const a=ce('a','chip'); a.href=blobUrlFor(text, conv._folder+'|'+name); a.download=dn;
-    a.innerHTML=FILE_ICON+'<span class="cname">'+esc(name)+'</span>'+DL_ICON;
-    return a;
+    const href=blobUrlFor(text, conv._folder+'|'+name);
+    const wrap=ce('div','chip chip-file');
+    const open=ce('a','chip-open'); open.href=href; open.target='_blank'; open.rel='noopener'; open.title='点击查看提取的文本';
+    open.innerHTML=FILE_ICON+'<span class="cname">'+esc(name)+' (文本)</span>';
+    wrap.appendChild(open);
+    wrap.appendChild(dlBtn(href, (String(name).replace(/\.[^.]+$/,'')||name)+'.txt'));
+    return wrap;
   }
-  // 啥都没有:纯标签
-  const span=ce('span','chip'); span.innerHTML=FILE_ICON+'<span class="cname">'+esc(name)+'</span>';
+  // 文件未抓到本地:灰色标签 + 提示
+  const span=ce('span','chip chip-missing'); span.title='此文件未保存到本地(用扩展重新抓取该对话即可)';
+  span.innerHTML=FILE_ICON+'<span class="cname">'+esc(name)+'</span>';
   return span;
+}
+
+/* ---------- 图片灯箱预览 ---------- */
+function openLightbox(url, name){
+  let box=document.getElementById('cca-lightbox');
+  if(!box){
+    box=ce('div'); box.id='cca-lightbox';
+    box.addEventListener('click', ()=>{ box.style.display='none'; box.innerHTML=''; });
+    document.body.appendChild(box);
+  }
+  box.innerHTML='';
+  const img=ce('img'); img.src=url; img.alt=name||'';
+  const cap=ce('div','lb-cap'); cap.textContent=name||'';
+  const dl=ce('a','lb-dl'); dl.href=url; dl.download=name||'image'; dl.textContent='下载'; dl.addEventListener('click',e=>e.stopPropagation());
+  box.appendChild(img); box.appendChild(cap); box.appendChild(dl);
+  box.style.display='flex';
 }
 
 /* ---------- 状态徽标(打断 / 工具上限) ---------- */
@@ -832,6 +892,22 @@ function messageEl(m, conv, sibs){
   const atts=Array.isArray(m.attachments)?m.attachments:[];
   const files=[].concat(Array.isArray(m.files)?m.files:[], Array.isArray(m.files_v2)?m.files_v2:[]);
 
+  // Claude 生成的文件:藏在 present_files 等工具结果的 local_resource 里(m.files 常为空)
+  const genFiles=[];
+  for(const b of (Array.isArray(m.content)?m.content:[])){
+    if(b && b.type==='tool_result' && Array.isArray(b.content)){
+      for(const item of b.content){
+        if(item && item.type==='local_resource' && item.file_path){
+          const nm=item.name && /\.[a-z0-9]{1,8}$/i.test(item.name) ? item.name : (item.file_path.split('/').pop()||item.name||'文件');
+          genFiles.push({ file_name:nm, file_uuid:item.uuid||null, _path:item.file_path });
+        }
+      }
+    }
+  }
+  // 去重(同 path 只显示一次,保留最后一个)
+  const seenPath=new Set(); const genUniq=[];
+  for(let i=genFiles.length-1;i>=0;i--){ const p=genFiles[i]._path; if(!seenPath.has(p)){ seenPath.add(p); genUniq.unshift(genFiles[i]); } }
+
   // 用户上传的附件 → 放消息顶部(它们是输入)
   if(atts.length){
     const c=ce('div','chips'); atts.forEach(a=>c.appendChild(makeChip(a,conv))); inner.appendChild(c);
@@ -844,9 +920,13 @@ function messageEl(m, conv, sibs){
     renderAssistantContent(content, inner);
   }
 
-  // 生成 / 关联的文件 → 放消息末尾(它们是产出)
-  if(files.length){
-    const c=ce('div','chips'); c.style.marginTop='6px'; files.forEach(f=>c.appendChild(makeChip(f,conv))); inner.appendChild(c);
+  // 生成 / 关联的文件 → 放消息末尾(m.files + present_files 产出)
+  const allOut=[...files, ...genUniq];
+  if(allOut.length){
+    const c=ce('div','chips'); c.style.marginTop='6px';
+    const lbl=ce('div','chips-label','Claude 生成的文件'); c.appendChild(lbl);
+    allOut.forEach(f=>c.appendChild(makeChip(f,conv)));
+    inner.appendChild(c);
   }
 
   // 状态徽标:打断 / 工具上限(放消息末尾)

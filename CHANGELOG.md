@@ -75,6 +75,14 @@
 ### ✨ 新增（Added）
 - 新增抓取 Claude 生成的文件：从 `present_files` 工具结果的 `local_resource` 解析 `file_path`，经 wiggle 下载接口获取。
 - 查看器新增「Claude 生成的文件」分组，展示于消息末尾。
+## [1.8.0] - 2026-06-10
+
+### 🐛 修复（Fixed）
+- 修复点击图片会触发下载的问题：图片改为点击打开灯箱预览，下载改为独立按钮。
+- 修复 Claude 生成文件无法在查看器打开的问题：按文件名与 uuid 解析，pdf/html 新标签打开。
+
+### 🔧 改进（Changed）
+- 扩展资源候选地址优先尝试 JSON 中的原始 variant（如 `/files/{uuid}/document_pdf`），主动排除缩略图。
 
 ---
 

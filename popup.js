@@ -4,7 +4,7 @@
 const $ = (id) => document.getElementById(id);
 const send = (m) => chrome.runtime.sendMessage(m);
 
-const TOGGLES = ['enabled', 'autoSave', 'saveAssets', 'refetchFull', 'keepHistory', 'keepStream'];
+const TOGGLES = ['enabled', 'autoSave', 'saveAssets', 'refetchFull', 'keepHistory', 'keepStream', 'debugLog'];
 
 function toast(kind, text, hold = 2600) {
   const t = $('toast');
@@ -156,6 +156,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const r = await send({ kind: 'popup:exportIndex' });
     if (r && r.ok) toast('ok', '索引已导出到 ClaudeArchive/_index.json');
     else toast('err', r?.error || '导出失败');
+  });
+
+  $('btnLog').addEventListener('click', async () => {
+    const r = await send({ kind: 'popup:exportLog' });
+    if (r && r.ok) toast('ok', `运行日志已导出(${r.count} 条)到 ClaudeArchive/_runlog.txt`);
+    else toast('err', r?.error || '没有日志可导出');
   });
 
   $('btnViewer').addEventListener('click', () => {

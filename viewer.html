@@ -205,6 +205,98 @@
   .tool-prose code{font-family:var(--mono);font-size:.85em;background:var(--code-bg);padding:1px 5px;border-radius:5px}
   .tool-prose pre.md-code{background:var(--code-bg);border:1px solid var(--border-soft);border-radius:9px;padding:11px 13px;overflow:auto;margin:0 0 9px}
 
+  /* ---------- 思考过程链(仿 Claude:思考正文 + 内嵌工具节点) ---------- */
+  .process{margin:4px 0 18px}
+  .process>summary{
+    list-style:none;cursor:pointer;user-select:none;display:inline-flex;align-items:center;gap:8px;
+    padding:5px 2px;font-family:var(--sans);font-size:13.5px;color:var(--text-3);border-radius:8px;
+  }
+  .process>summary::-webkit-details-marker{display:none}
+  .process>summary:hover{color:var(--text-2)}
+  .process>summary .spark{width:15px;height:15px;flex:none;color:var(--accent);opacity:.92}
+  .process>summary .ptitle{color:var(--text-2);font-weight:550}
+  .process>summary .pcount{font-size:11.5px;color:var(--text-faint);font-family:var(--mono)}
+  .process>summary .chev{width:8px;height:8px;border-right:1.7px solid currentColor;border-bottom:1.7px solid currentColor;transform:rotate(-45deg);transition:transform .18s;flex:none;margin-left:1px}
+  .process[open]>summary .chev{transform:rotate(45deg)}
+  /* 展开后整条链有一根贯穿左竖线(像 Claude 思考缩进) */
+  .steps{margin:9px 0 0;padding:2px 0 2px 0;border-left:2px solid var(--border);}
+  .step{position:relative;padding:0 0 0 24px;margin-left:14px}
+  .step>summary{
+    list-style:none;cursor:pointer;user-select:none;display:flex;align-items:center;gap:9px;
+    padding:7px 0;font-family:var(--sans);font-size:13px;color:var(--text-2);position:relative;
+  }
+  .step>summary::-webkit-details-marker{display:none}
+  .step>summary:hover{color:var(--text)}
+  .step>summary .node{
+    position:absolute;left:-23px;top:50%;transform:translateY(-50%);
+    width:15px;height:15px;border-radius:50%;background:var(--bg);
+    border:2px solid var(--border);display:grid;place-items:center;color:var(--text-3);
+  }
+  .step>summary .node svg{width:8px;height:8px}
+  .step.s-think>summary .node{border-color:var(--accent);color:var(--accent)}
+  .step.s-tool>summary .node{border-color:var(--accent);color:var(--accent)}
+  .step.s-err>summary .node{border-color:#d4574d;color:#e08a8a}
+  .step[open]>summary .node{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .step.s-err[open]>summary .node{background:#d4574d;color:#fff;border-color:#d4574d}
+  .step>summary .slabel{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .step>summary .slabel b{font-weight:600;color:var(--text);font-family:var(--mono);font-size:12px}
+  .step>summary .stag{font-size:10.5px;color:var(--text-faint);flex:none;margin-left:6px}
+  .step>summary .schev{width:7px;height:7px;border-right:1.6px solid var(--text-3);border-bottom:1.6px solid var(--text-3);transform:rotate(-45deg);transition:transform .16s;flex:none}
+  .step[open]>summary .schev{transform:rotate(45deg)}
+  .step-body{padding:0 0 12px}
+  .step-body .lbl{font-family:var(--sans);font-size:11px;letter-spacing:.4px;color:var(--text-3);margin:6px 0 6px;font-weight:600;text-transform:uppercase}
+  .step-body .lbl.gap{margin-top:13px}
+  .step-think{font-family:var(--serif);font-size:14.5px;line-height:1.72;color:var(--text-2)}
+  .step-think>*:first-child{margin-top:0}.step-think>*:last-child{margin-bottom:0}
+  .step-think p{margin:0 0 10px}
+  .step-think code{font-family:var(--mono);font-size:.85em;background:var(--code-bg);padding:1px 5px;border-radius:5px}
+  .step-think pre.md-code{background:var(--code-bg);border:1px solid var(--border-soft);border-radius:9px;padding:11px 13px;overflow:auto;margin:0 0 10px}
+  /* 思考的逐阶段摘要(展开时显示在正文上方,像 Claude 的小标题序列) */
+  .think-tags{margin:0 0 12px;padding:9px 12px;background:var(--code-bg);border-radius:9px}
+  .think-tag{display:flex;align-items:flex-start;gap:8px;font-family:var(--sans);font-size:12.5px;color:var(--text-2);padding:2px 0}
+  .think-tag .dot{flex:none;width:5px;height:5px;border-radius:50%;background:var(--accent);margin-top:7px}
+
+  /* ---------- 状态徽标:打断 / 工具上限 ---------- */
+  .statusbar{display:flex;align-items:center;gap:8px;margin:2px 0 14px;
+    font-family:var(--sans);font-size:12.5px;padding:8px 12px;border-radius:9px;border:1px solid var(--border-soft)}
+  .statusbar svg{width:15px;height:15px;flex:none}
+  .statusbar.cancel{background:rgba(180,150,80,.10);border-color:rgba(190,160,90,.32);color:var(--warn)}
+  .statusbar.limit{background:rgba(217,122,87,.10);border-color:rgba(217,122,87,.32);color:var(--accent)}
+
+  /* ---------- 分支切换器(左右叶子) ---------- */
+  .branchbar{display:flex;align-items:center;gap:6px;margin:0 0 8px;justify-content:flex-end}
+  .msg.human .branchbar{justify-content:flex-end}
+  .msg.assistant .branchbar{justify-content:flex-start}
+  .branchbar .bb{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:8px;
+    background:var(--bg-elev);border:1px solid var(--border-soft);color:var(--text-3);font-family:var(--sans);font-size:11.5px}
+  .branchbar .barrow{width:22px;height:22px;display:grid;place-items:center;border-radius:6px;cursor:pointer;color:var(--text-2);border:0;background:transparent}
+  .branchbar .barrow:hover{background:var(--hover);color:var(--text)}
+  .branchbar .barrow:disabled{opacity:.3;cursor:default}
+  .branchbar .barrow svg{width:13px;height:13px}
+  .branchbar .bcount{font-family:var(--mono);font-size:11px;color:var(--text-2);min-width:30px;text-align:center}
+
+  /* ---------- 动画与交互打磨 ---------- */
+  @keyframes ccaFade{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+  @keyframes ccaMsg{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  @keyframes ccaPulse{0%,100%{opacity:.55}50%{opacity:1}}
+  details.think[open] .think-body,
+  details.toolcard[open] .tool-body,
+  details.process[open] .steps,
+  details.step[open] .step-body{ animation:ccaFade .22s ease; }
+  .msg{ animation:ccaMsg .26s ease both; }
+  .process>summary .spark,.think>summary .spark{ transition:opacity .2s }
+  details.process:not([open])>summary:hover .spark,
+  details.think:not([open])>summary:hover .spark{ animation:ccaPulse 1.4s ease-in-out infinite }
+  .step>summary .node{ transition:background .18s,border-color .18s,color .18s,transform .12s }
+  .step>summary:hover .node{ transform:translateY(-50%) scale(1.12) }
+  details.toolcard,details.process,details.think>summary,.chip,.conv-item{ transition:background .14s,border-color .14s,box-shadow .14s }
+  a.chip:hover{ box-shadow:0 1px 0 rgba(0,0,0,.04) }
+  @media (prefers-reduced-motion: reduce){
+    *{animation:none !important}
+    details.think[open] .think-body,details.toolcard[open] .tool-body,
+    details.process[open] .steps,details.step[open] .step-body,.msg{animation:none !important}
+  }
+
   /* ---------- 附件 / 文件 ---------- */
   .chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
   .chip{
@@ -364,10 +456,10 @@ function mdToHtml(src){
 }
 
 /* ---------- 活动分支(沿 current_leaf_message_uuid 回溯) ---------- */
-function activePath(data){
+function activePath(data, leafOverride){
   const msgs = Array.isArray(data&&data.chat_messages)?data.chat_messages:[];
   const by = new Map(msgs.map(m=>[m.uuid,m]));
-  const leaf = data && data.current_leaf_message_uuid;
+  const leaf = leafOverride && by.has(leafOverride) ? leafOverride : (data && data.current_leaf_message_uuid);
   if(leaf && by.has(leaf)){
     const path=[]; const seen=new Set(); let cur=by.get(leaf);
     while(cur && !seen.has(cur.uuid)){ seen.add(cur.uuid); path.push(cur); cur=by.get(cur.parent_message_uuid); }
@@ -404,6 +496,12 @@ function thinkBlock(text){
 function lbl(text,gap){ return ce('div','lbl'+(gap?' gap':''),esc(text)); }
 function proseBox(text){ const d=ce('div','tool-prose'); d.innerHTML=mdToHtml(text||''); return d; }
 function looksJson(s){ s=String(s==null?'':s).trim(); if(!(s[0]==='{'||s[0]==='[')) return false; try{ JSON.parse(s); return true; }catch{ return false; } }
+function prettyJson(s){ try{ return JSON.stringify(JSON.parse(String(s)), null, 2); }catch{ return String(s==null?'':s); } }
+function resultNode(b){
+  const txt=toolResultText(b);
+  if(looksJson(txt)) return preBlock(prettyJson(txt)); // 重新美化,中文正常显示
+  return proseBox(txt);
+}
 function toolCard(name,kindLabel,bodyNodes,isErr){
   const d=ce('details','toolcard'+(isErr?' err':''));
   const s=ce('summary');
@@ -424,12 +522,120 @@ function blockEl(b){
     return toolCard(b.name||'工具','调用工具',[ lbl('请求参数'), preBlock(JSON.stringify(b.input||{},null,2)) ],false);
   }
   if(t==='tool_result'){
-    const txt=toolResultText(b);
-    const bodyNode = looksJson(txt) ? preBlock(txt) : proseBox(txt);
     return toolCard(b.name||'工具', b.is_error?'工具出错':'工具结果',
-      [ lbl(b.is_error?'返回(错误)':'返回结果'), bodyNode ], !!b.is_error);
+      [ lbl(b.is_error?'返回(错误)':'返回结果'), resultNode(b) ], !!b.is_error);
   }
   return toolCard(t||'block','原始数据',[ preBlock(JSON.stringify(b,null,2)) ],false);
+}
+
+/* ---------- 过程时间线(仿 Claude:思考标签 + 内嵌工具) ---------- */
+function nodeIcon(kind,name){
+  if(kind==='think') return sparkSvg();
+  return toolIconSvg(name);
+}
+// 取 thinking 块的摘要(Claude 标签);返回 {tags:[...], text}
+function thinkInfo(block){
+  const text = (block && (block.thinking || block.text)) || '';
+  const tags = (block && Array.isArray(block.summaries))
+    ? block.summaries.map(s => s && s.summary).filter(Boolean)
+    : [];
+  return { tags, text, cutOff: !!(block && block.cut_off) };
+}
+function stepThink(block){
+  const { tags, text } = thinkInfo(block);
+  const label = tags.length ? tags[tags.length-1] : '思考';
+  const d=ce('details','step s-think');
+  const s=ce('summary');
+  s.innerHTML='<span class="node">'+sparkSvg()+'</span>'+
+    '<span class="slabel">'+esc(label)+'</span>'+
+    '<span class="schev"></span>';
+  d.appendChild(s);
+  const body=ce('div','step-body');
+  // 多个阶段摘要:仅当数量适中(2-3 条)时列出;过多是流式滚动标签,正文已足够,不堆叠
+  if(tags.length>1 && tags.length<=3){
+    const ul=ce('div','think-tags');
+    tags.forEach(t=>{ const it=ce('div','think-tag'); it.innerHTML='<span class="dot"></span>'+esc(t); ul.appendChild(it); });
+    body.appendChild(ul);
+  }
+  const tk=ce('div','step-think'); tk.innerHTML=mdToHtml(text||''); body.appendChild(tk);
+  d.appendChild(body);
+  return d;
+}
+function stepTool(use, result){
+  const name=(use&&use.name)||(result&&result.name)||'工具';
+  const isErr=!!(result&&result.is_error);
+  const d=ce('details','step s-tool'+(isErr?' s-err':''));
+  const s=ce('summary');
+  s.innerHTML='<span class="node">'+toolIconSvg(name)+'</span>'+
+    '<span class="slabel"><b>'+esc(name)+'</b></span><span class="schev"></span>';
+  d.appendChild(s);
+  const body=ce('div','step-body');
+  if(use){ body.appendChild(lbl('请求参数')); body.appendChild(preBlock(JSON.stringify(use.input||{},null,2))); }
+  if(result){
+    const isE=!!result.is_error;
+    body.appendChild(lbl(isE?'返回(错误)':'返回结果', !!use));
+    body.appendChild(resultNode(result));
+  }
+  d.appendChild(body);
+  return d;
+}
+function processTimeline(steps){
+  // steps: [{kind:'think',block} | {kind:'tool',use,result}]
+  // 头部标签:用各 thinking 块最后一条 summary 串起来(Claude 的"在做什么"),无则退回计数
+  const labels=[];
+  for(const st of steps){
+    if(st.kind==='think'){
+      const { tags } = thinkInfo(st.block);
+      if(tags.length) labels.push(tags[tags.length-1]);
+    }
+  }
+  const nTool=steps.filter(s=>s.kind==='tool').length;
+  let head;
+  if(labels.length){
+    // 折叠态显示最后一个阶段标签(最贴近"刚才/正在做什么"),多段时加 +N
+    head = esc(labels[labels.length-1]) + (labels.length>1 ? ' <span class="pcount">+'+(labels.length-1)+' 步</span>' : '');
+  } else {
+    head = '思考' + (nTool ? ' <span class="pcount">· 调用 '+nTool+' 次工具</span>' : '');
+  }
+
+  const d=ce('details','process');
+  const s=ce('summary');
+  s.innerHTML=sparkSvg()+'<span class="ptitle">'+head+'</span><span class="chev"></span>';
+  d.appendChild(s);
+  const wrap=ce('div','steps');
+  steps.forEach(st=>{
+    if(st.kind==='think') wrap.appendChild(stepThink(st.block));
+    else wrap.appendChild(stepTool(st.use, st.result));
+  });
+  d.appendChild(wrap);
+  return d;
+}
+// 把一条消息的 content 分组:连续的 thinking/tool 收进时间线,text 作为普通 prose
+function renderAssistantContent(content, container){
+  let i=0;
+  while(i<content.length){
+    const b=content[i];
+    const t=b&&b.type;
+    if(t==='thinking'||t==='tool_use'||t==='tool_result'){
+      const steps=[];
+      while(i<content.length){
+        const c=content[i], ct=c&&c.type;
+        if(ct==='thinking'){ steps.push({kind:'think', block:c}); i++; }
+        else if(ct==='tool_use'){
+          const nxt=content[i+1];
+          if(nxt && nxt.type==='tool_result'){ steps.push({kind:'tool',use:c,result:nxt}); i+=2; }
+          else { steps.push({kind:'tool',use:c,result:null}); i++; }
+        }
+        else if(ct==='tool_result'){ steps.push({kind:'tool',use:null,result:c}); i++; }
+        else break;
+      }
+      if(steps.length) container.appendChild(processTimeline(steps));
+    } else {
+      // text / 其它
+      container.appendChild(blockEl(b));
+      i++;
+    }
+  }
 }
 
 /* ---------- 资源解析(把 files/ 里的文件映射成可点链接/图片) ---------- */
@@ -481,10 +687,75 @@ function makeChip(obj, conv){
   return span;
 }
 
+/* ---------- 状态徽标(打断 / 工具上限) ---------- */
+function statusBadge(stopReason){
+  if(stopReason==='user_canceled'){
+    const d=ce('div','statusbar cancel');
+    d.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6" stroke-linecap="round"/></svg><span>此回复被你打断,未生成完整</span>';
+    return d;
+  }
+  if(stopReason==='tool_use_limit' || stopReason==='max_tokens'){
+    const d=ce('div','statusbar limit');
+    const txt = stopReason==='max_tokens' ? '已达到本次回复长度上限' : '已达到工具调用次数上限,回复在此暂停';
+    d.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 8v5M12 16h.01M10.3 3.9 2.4 18a1.8 1.8 0 0 0 1.6 2.7h16a1.8 1.8 0 0 0 1.6-2.7L13.7 3.9a1.8 1.8 0 0 0-3.1 0z" stroke-linejoin="round"/></svg><span>'+txt+'</span>';
+    return d;
+  }
+  return null;
+}
+
+/* ---------- 分支(同一父节点下的多个兄弟)---------- */
+function buildChildMap(data){
+  const msgs=Array.isArray(data&&data.chat_messages)?data.chat_messages:[];
+  const kids=new Map();
+  for(const m of msgs){
+    const p=m.parent_message_uuid||'__root__';
+    if(!kids.has(p)) kids.set(p,[]);
+    kids.get(p).push(m);
+  }
+  for(const arr of kids.values()){
+    arr.sort((a,b)=>((a.index||0)-(b.index||0))||String(a.created_at||'').localeCompare(String(b.created_at||'')));
+  }
+  return kids;
+}
+// 取某节点子树里"最新"的叶子(沿 created_at 最大的子一路向下),用于切换分支后定位 leaf
+function deepestLeaf(data, startUuid){
+  const kids=buildChildMap(data);
+  let cur=startUuid;
+  for(;;){
+    const ch=kids.get(cur);
+    if(!ch||!ch.length) return cur;
+    cur=ch[ch.length-1].uuid; // 最新的子
+  }
+}
+function branchSwitcher(sibs, curUuid, conv){
+  if(!sibs || sibs.length<2) return null;
+  const idx=sibs.findIndex(s=>s.uuid===curUuid);
+  const bar=ce('div','branchbar');
+  const wrap=ce('div','bb');
+  const prev=ce('button','barrow'); prev.title='上一个分支';
+  prev.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const next=ce('button','barrow'); next.title='下一个分支';
+  next.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const cnt=ce('span','bcount', (idx+1)+' / '+sibs.length);
+  if(idx<=0) prev.disabled=true;
+  if(idx>=sibs.length-1) next.disabled=true;
+  const go=(targetUuid)=>{ conv._leaf = deepestLeaf(conv.data, targetUuid); renderThread(); };
+  prev.addEventListener('click',(e)=>{ e.stopPropagation(); if(idx>0) go(sibs[idx-1].uuid); });
+  next.addEventListener('click',(e)=>{ e.stopPropagation(); if(idx<sibs.length-1) go(sibs[idx+1].uuid); });
+  wrap.appendChild(prev); wrap.appendChild(cnt); wrap.appendChild(next);
+  bar.appendChild(wrap);
+  return bar;
+}
+
 /* ---------- 渲染:单条消息 ---------- */
-function messageEl(m, conv){
+function messageEl(m, conv, sibs){
   const row=ce('div','msg '+(m.sender==='human'?'human':'assistant'));
   const inner=ce('div','msg-inner');
+
+  // 分支切换器(该消息在父节点下有多个兄弟时)
+  const bs=branchSwitcher(sibs, m.uuid, conv);
+  if(bs) inner.appendChild(bs);
+
   const atts=Array.isArray(m.attachments)?m.attachments:[];
   const files=[].concat(Array.isArray(m.files)?m.files:[], Array.isArray(m.files_v2)?m.files_v2:[]);
 
@@ -494,12 +765,20 @@ function messageEl(m, conv){
   }
 
   const content=(Array.isArray(m.content)&&m.content.length)?m.content:(m.text?[{type:'text',text:m.text}]:[]);
-  content.forEach(b=>inner.appendChild(blockEl(b)));
+  if(m.sender==='human'){
+    content.forEach(b=>inner.appendChild(blockEl(b)));
+  } else {
+    renderAssistantContent(content, inner);
+  }
 
   // 生成 / 关联的文件 → 放消息末尾(它们是产出)
   if(files.length){
     const c=ce('div','chips'); c.style.marginTop='6px'; files.forEach(f=>c.appendChild(makeChip(f,conv))); inner.appendChild(c);
   }
+
+  // 状态徽标:打断 / 工具上限(放消息末尾)
+  const badge=statusBadge(m.stop_reason);
+  if(badge) inner.appendChild(badge);
 
   row.appendChild(inner);
   return row;
@@ -513,7 +792,12 @@ function renderThread(){
   $('#topTitle').textContent=conv.name||'未命名对话';
   $('#topModel').textContent=conv.model||'';
   const wrap=ce('div','thread-inner');
-  activePath(conv.data).forEach(m=>wrap.appendChild(messageEl(m,conv)));
+  const kids=buildChildMap(conv.data);
+  const path=activePath(conv.data, conv._leaf);
+  for(const m of path){
+    const sibs=kids.get(m.parent_message_uuid||'__root__')||[];
+    wrap.appendChild(messageEl(m, conv, sibs));
+  }
   thread.appendChild(wrap);
   thread.scrollTop=0;
 }

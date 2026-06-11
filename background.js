@@ -130,7 +130,7 @@ async function archive(convId, { force = false } = {}) {
   const settings = await getSettings();
   if (!settings.enabled) return { ok: false, error: 'disabled' };
 
-  const conv = { uuid: convId, orgId: st.orgId, data: st.data, full: st.full,
+  const conv = { uuid: convId, orgId: st.orgId, data: st.data, full: st.full, origin: st.origin,
                  lastRequest: st.lastRequest, lastStream: st.lastStream };
 
   // 去重:活动分支结构 + 消息数 + leaf 变化才重写
@@ -248,6 +248,7 @@ async function onCapture(type, p) {
     st.data = p.data;
     st.full = st.full || /render_all_tools=true/i.test(p.url || '');
     st.name = p.data?.name;
+    try { if (p.url && /^https?:\/\//i.test(p.url)) st.origin = new URL(p.url).origin; } catch {}
     state.set(convId, st);
     scheduleArchive(convId);
     return;

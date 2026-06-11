@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Claude · 本地存档查看器</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" crossorigin="anonymous"></script>
 <style>
   :root[data-theme="dark"]{
     --bg:#262624; --bg-side:#1f1e1d; --bg-elev:#30302d; --bg-user:#34322f;
@@ -138,14 +140,35 @@
   .md a{color:var(--accent);text-decoration:none}
   .md a:hover{text-decoration:underline}
   .md strong{font-weight:650}
-  .md blockquote{border-left:3px solid var(--border);margin:0 0 14px;padding:2px 0 2px 16px;color:var(--text-2)}
+  /* Claude 风格引用块:浅色卡片背景 + 左侧赤陶色条 */
+  .md blockquote{border-left:3px solid var(--accent);background:var(--detail-bg);border-radius:0 8px 8px 0;
+    margin:0 0 14px;padding:10px 16px;color:var(--text-2)}
+  .md blockquote p:last-child{margin-bottom:0}
   .md hr{border:0;border-top:1px solid var(--border);margin:20px 0}
   .md code{font-family:var(--mono);font-size:.86em;background:var(--code-bg);padding:2px 5px;border-radius:5px}
-  .md pre.md-code{
-    background:var(--code-bg);border:1px solid var(--border-soft);border-radius:10px;
-    padding:14px 16px;overflow:auto;margin:0 0 14px;
-  }
-  .md pre.md-code code{background:transparent;padding:0;font-size:13px;line-height:1.6;color:var(--text)}
+  /* 代码块:顶栏(语言+复制) + VSCode 风格代码区 */
+  .codewrap{margin:0 0 14px;border:1px solid var(--border-soft);border-radius:10px;overflow:hidden;background:#1e1e1e}
+  .codebar{display:flex;align-items:center;justify-content:space-between;padding:6px 10px 6px 14px;
+    background:#252526;border-bottom:1px solid #333}
+  .codelang{font-family:var(--mono);font-size:11px;color:#9c9c9c;text-transform:lowercase;letter-spacing:.3px}
+  .codecopy{display:inline-flex;align-items:center;gap:5px;background:transparent;border:1px solid #3a3a3a;
+    color:#cfcfcf;font-family:var(--sans);font-size:11.5px;padding:3px 9px;border-radius:6px;cursor:pointer;transition:all .14s}
+  .codecopy:hover{background:#2d2d2e;border-color:#4a4a4a;color:#fff}
+  .codecopy.copied{border-color:var(--accent);color:var(--accent)}
+  .codecopy svg{width:13px;height:13px}
+  .codewrap pre.md-code{background:#1e1e1e;border:0;border-radius:0;padding:13px 16px;margin:0;overflow:auto}
+  .codewrap pre.md-code code{background:transparent;padding:0;font-size:12.8px;line-height:1.6;color:#d4d4d4;font-family:var(--mono)}
+  /* VSCode Dark+ 经典配色 */
+  .tk-kw{color:#569cd6}      /* 关键字 蓝 */
+  .tk-str{color:#ce9178}     /* 字符串 橙棕 */
+  .tk-com{color:#6a9955;font-style:italic}  /* 注释 绿 */
+  .tk-num{color:#b5cea8}     /* 数字 浅绿 */
+  .tk-fn{color:#dcdcaa}      /* 函数名 黄 */
+  /* 公式 */
+  .math-fallback{font-family:var(--mono);font-size:.9em;color:var(--text-2);background:var(--code-bg);padding:1px 5px;border-radius:4px}
+  .math-fallback.math-block{display:block;padding:10px 14px;margin:0 0 12px;overflow-x:auto;text-align:center}
+  .md .katex-display{margin:12px 0;overflow-x:auto;overflow-y:hidden}
+  .md .katex{font-size:1.05em}
   .md .md-tablewrap{overflow-x:auto;margin:0 0 14px}
   .md table.md-table{border-collapse:collapse;font-family:var(--sans);font-size:14px;width:100%}
   .md table.md-table th,.md table.md-table td{border:1px solid var(--border);padding:7px 11px;text-align:left;vertical-align:top}
@@ -306,6 +329,29 @@
   /* ---------- 附件 / 文件 ---------- */
   .chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
   .chips-label{width:100%;font-family:var(--sans);font-size:11px;color:var(--text-3);margin:2px 0 -2px;font-weight:600}
+  .msg-foot{display:flex;align-items:center;gap:7px;margin-top:8px;font-family:var(--sans);font-size:11px;color:var(--text-faint)}
+  .msg.human .msg-foot{justify-content:flex-end}
+  .msg-foot .mf-think{color:var(--accent);opacity:.85}
+  .msg-foot .mf-dot{opacity:.5}
+  /* 统计面板 */
+  .stats-modal{position:fixed;inset:0;z-index:210;display:flex;align-items:center;justify-content:center;padding:24px}
+  .stats-bd{position:absolute;inset:0;background:rgba(0,0,0,.55)}
+  .stats-card{position:relative;background:var(--bg);border:1px solid var(--border);border-radius:16px;
+    width:min(680px,94vw);max-height:88vh;overflow:auto;box-shadow:0 20px 70px rgba(0,0,0,.4)}
+  .stats-head{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--border-soft);
+    font-family:var(--sans);font-size:16px;font-weight:650;color:var(--text);position:sticky;top:0;background:var(--bg)}
+  .stats-close{cursor:pointer;color:var(--text-3);font-size:18px;line-height:1}
+  .stats-close:hover{color:var(--text)}
+  .stats-body{padding:18px 22px 24px}
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
+  .stat-cell{background:var(--detail-bg);border:1px solid var(--border-soft);border-radius:12px;padding:14px 16px}
+  .stat-num{font-family:var(--sans);font-size:24px;font-weight:700;color:var(--accent);line-height:1.1}
+  .stat-lbl{font-family:var(--sans);font-size:12px;color:var(--text-2);margin-top:5px}
+  .stat-sec{font-family:var(--sans);font-size:12px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 10px}
+  .stat-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border-soft);font-family:var(--sans);font-size:13.5px;color:var(--text-2)}
+  .stat-row b{color:var(--text);font-weight:600}
+  .stat-bar{height:7px;background:var(--code-bg);border-radius:4px;overflow:hidden;margin-top:4px}
+  .stat-bar > i{display:block;height:100%;background:var(--accent);border-radius:4px}
   .chip{
     display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border-radius:9px;
     background:var(--bg-elev);border:1px solid var(--border-soft);color:var(--text-2);
@@ -381,6 +427,9 @@
     <div class="brand">
       <span class="logo">Claude</span>
       <span class="sp">
+        <span class="ic" id="statsBtn" title="统计">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
         <span class="ic" id="themeBtn" title="切换主题">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke-linecap="round"/></svg>
         </span>
@@ -430,6 +479,14 @@
 
 <div class="toast" id="toast"></div>
 
+<div id="statsModal" class="stats-modal" style="display:none">
+  <div class="stats-bd"></div>
+  <div class="stats-card">
+    <div class="stats-head"><span>你与 Claude 的存档统计</span><span class="stats-close" id="statsClose">✕</span></div>
+    <div class="stats-body" id="statsBody"></div>
+  </div>
+</div>
+
 <script>
 'use strict';
 const $ = (s,r=document)=>r.querySelector(s);
@@ -447,20 +504,92 @@ applyTheme((()=>{ try{ return localStorage.getItem('cca_theme')||'dark'; }catch{
 /* ---------- Markdown(紧凑实现:标题/列表/引用/表格/代码/行内) ---------- */
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function inlineMd(t){
+  // 先抽出行内公式,避免被转义/加粗破坏
+  const im=[];
+  const keep=(tex)=>{ const i=im.length; im.push(tex); return '\uE002'+i+'\uE002'; };
+  t = String(t==null?'':t);
+  t = t.replace(/\\\(([\s\S]+?)\\\)/g,(m,x)=>keep(x));
+  // $...$ 行内(避开 $$、转义\$、和纯货币如 $5 没有配对的情况由配对正则保证)
+  t = t.replace(/(?<!\$)\$(?!\s)([^\$\n]+?)(?<!\s)\$(?!\$)/g,(m,x)=>keep(x));
   t = esc(t);
   t = t.replace(/`([^`]+)`/g,(m,c)=>'<code>'+c+'</code>');
   t = t.replace(/\*\*([^*]+?)\*\*/g,'<strong>$1</strong>');
   t = t.replace(/(^|[^*\w])\*([^*\n]+?)\*(?=[^*\w]|$)/g,'$1<em>$2</em>');
   t = t.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // 还原行内公式
+  t = t.replace(/\uE002(\d+)\uE002/g,(m,n)=>renderMath(im[+n]||'',false));
   return t;
+}
+
+/* ---------- 公式渲染(KaTeX,缺失时回退原文) ---------- */
+function renderMath(tex, display){
+  tex = String(tex==null?'':tex);
+  try{
+    if(window.katex && window.katex.renderToString){
+      return window.katex.renderToString(tex, {displayMode:!!display, throwOnError:false, output:'html'});
+    }
+  }catch(e){}
+  // KaTeX 未加载/出错:保留可读原文
+  const cls = display ? 'math-fallback math-block' : 'math-fallback';
+  return '<'+(display?'div':'span')+' class="'+cls+'">'+esc((display?'':'')+tex)+'</'+(display?'div':'span')+'>';
+}
+
+/* ---------- 代码块:复制按钮 + VSCode Dark+ 高亮 ---------- */
+let __cbSeq=0;
+function renderCodeBlock(lang, raw){
+  const id='cb'+(++__cbSeq);
+  window.__codeStore=window.__codeStore||{}; window.__codeStore[id]=raw;
+  const langLabel = lang ? esc(lang) : '';
+  const highlighted = highlightCode(raw, lang);
+  return '<div class="codewrap">'
+    + '<div class="codebar"><span class="codelang">'+langLabel+'</span>'
+    + '<button class="codecopy" data-cb="'+id+'" title="复制代码">'
+    + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10" stroke-linecap="round"/></svg>'
+    + '<span class="copytxt">复制</span></button></div>'
+    + '<pre class="md-code"><code>'+highlighted+'</code></pre></div>';
+}
+// 轻量 VSCode Dark+ 风格 tokenizer(无外部依赖,覆盖常见语言)
+function highlightCode(raw, lang){
+  const S='\uE100', E='\uE101'; // 占位,避免嵌套替换
+  const spans=[];
+  const tok=(cls,txt)=>{ spans.push('<span class="tk-'+cls+'">'+txt+'</span>'); return S+(spans.length-1)+E; };
+  let s = esc(raw);
+  // 注释 // 和 # 和 /* */ ; 字符串 "..." '...' `...` ; 数字 ; 关键字
+  // 顺序:先字符串/注释(防止内部被再次染色)
+  s = s.replace(/(&quot;[^&\n]*?&quot;|&#39;[^&#\n]*?&#39;|`[^`\n]*?`)/g,(m)=>tok('str',m));
+  s = s.replace(/(\/\/[^\n]*|#[^\n]*)/g,(m)=>tok('com',m));
+  s = s.replace(/(\/\*[\s\S]*?\*\/)/g,(m)=>tok('com',m));
+  // 数字
+  s = s.replace(/\b(0x[0-9a-fA-F]+|\d+\.?\d*(?:e[+-]?\d+)?)\b/g,(m)=>tok('num',m));
+  // 关键字(通用集合,覆盖 js/py/ts/c/java/go/rust/sh 常见词)
+  const KW=/\b(const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|new|class|extends|super|this|import|from|export|default|async|await|try|catch|finally|throw|typeof|instanceof|in|of|void|yield|def|elif|lambda|pass|with|as|None|True|False|and|or|not|is|print|self|public|private|protected|static|final|int|float|double|char|bool|boolean|string|String|struct|enum|interface|type|fn|let mut|mut|pub|use|impl|match|nil|null|undefined|echo|fi|then|do|done|esac|local|func|package|map|range)\b/g;
+  s = s.replace(KW,(m)=>tok('kw',m));
+  // 函数名(标识符后紧跟括号)
+  s = s.replace(/\b([A-Za-z_]\w*)(?=\s*\()/g,(m)=>tok('fn',m));
+  // 还原占位
+  s = s.replace(new RegExp(S+'(\\d+)'+E,'g'),(m,n)=>spans[+n]);
+  return s;
 }
 function splitRow(s){ return s.trim().replace(/^\|/,'').replace(/\|$/,'').split('|').map(x=>x.trim()); }
 function mdToHtml(src){
   src = String(src==null?'':src);
   const code=[];
-  const stash = (c)=>{ const i=code.length; code.push('<pre class="md-code"><code>'+esc(c.replace(/\s+$/,''))+'</code></pre>'); return '\uE000'+i+'\uE000'; };
-  src = src.replace(/```[^\n`]*\n([\s\S]*?)```/g,(m,c)=>stash(c));
-  src = src.replace(/~~~[^\n]*\n([\s\S]*?)~~~/g,(m,c)=>stash(c));
+  // 代码块:捕获语言 + 原始代码,渲染为带复制按钮 + 高亮的容器
+  const stash = (lang, c)=>{
+    const i=code.length;
+    const raw=c.replace(/\s+$/,'');
+    code.push(renderCodeBlock(lang, raw));
+    return '\uE000'+i+'\uE000';
+  };
+  src = src.replace(/```([^\n`]*)\n([\s\S]*?)```/g,(m,lang,c)=>stash((lang||'').trim(),c));
+  src = src.replace(/~~~([^\n]*)\n([\s\S]*?)~~~/g,(m,lang,c)=>stash((lang||'').trim(),c));
+
+  // 公式:先把 $$...$$(行间)和 \[...\] 抽出占位,避免被 markdown 误伤
+  const math=[];
+  const mstash=(tex,display)=>{ const i=math.length; math.push({tex,display}); return '\uE001'+i+'\uE001'; };
+  src = src.replace(/\$\$([\s\S]+?)\$\$/g,(m,t)=>mstash(t,true));
+  src = src.replace(/\\\[([\s\S]+?)\\\]/g,(m,t)=>mstash(t,true));
+
   const lines = src.split('\n');
   const out=[]; let i=0;
   const blank = s=>/^\s*$/.test(s);
@@ -487,7 +616,10 @@ function mdToHtml(src){
     while(i<lines.length && !blank(lines[i]) && !isBlockStart(lines[i])){ para.push(lines[i]); i++; }
     out.push('<p>'+para.map(inlineMd).join('<br>')+'</p>');
   }
-  return out.join('\n').replace(/\uE000(\d+)\uE000/g,(m,n)=>code[+n]||'');
+  let html = out.join('\n').replace(/\uE000(\d+)\uE000/g,(m,n)=>code[+n]||'');
+  // 还原行间公式
+  html = html.replace(/\uE001(\d+)\uE001/g,(m,n)=>{ const e=math[+n]; return e?renderMath(e.tex,true):''; });
+  return html;
 }
 
 /* ---------- 活动分支(沿 current_leaf_message_uuid 回溯) ---------- */
@@ -933,9 +1065,49 @@ function messageEl(m, conv, sibs){
   const badge=statusBadge(m.stop_reason);
   if(badge) inner.appendChild(badge);
 
+  // 消息页脚:左下角显示最后更新时间(时:分:秒)+ 本条 Claude 思考用时
+  const foot=ce('div','msg-foot');
+  const parts=[];
+  const ts=m.updated_at || m.created_at;
+  if(ts){ parts.push('<span class="mf-time">'+esc(fmtClock(ts))+'</span>'); }
+  if(m.sender!=='human'){
+    const think=msgThinkMs(m);
+    if(think>0) parts.push('<span class="mf-think">'+sparkSvgSmall()+' 思考 '+esc(fmtDur(think))+'</span>');
+  }
+  if(parts.length){ foot.innerHTML=parts.join('<span class="mf-dot">·</span>'); inner.appendChild(foot); }
+
   row.appendChild(inner);
   return row;
 }
+
+/* ---------- 时间/时长工具 ---------- */
+function fmtClock(ts){ // 显示到 时:分:秒
+  try{ const d=new Date(ts); if(isNaN(d)) return ''; 
+    const p=n=>String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  }catch(e){ return ''; }
+}
+function fmtDur(ms){
+  if(!ms||ms<0) return '0秒';
+  const s=Math.round(ms/1000);
+  if(s<60) return s+'秒';
+  const m=Math.floor(s/60), ss=s%60;
+  if(m<60) return ss?`${m}分${ss}秒`:`${m}分`;
+  const h=Math.floor(m/60), mm=m%60;
+  return `${h}时${mm}分`;
+}
+// 一条 assistant 消息的"思考用时" = 各 thinking 块 (stop-start) 之和
+function msgThinkMs(m){
+  let total=0;
+  for(const b of (Array.isArray(m.content)?m.content:[])){
+    if(b && b.type==='thinking' && b.start_timestamp && b.stop_timestamp){
+      const a=new Date(b.start_timestamp), z=new Date(b.stop_timestamp);
+      if(!isNaN(a)&&!isNaN(z)&&z>=a) total+=(z-a);
+    }
+  }
+  return total;
+}
+function sparkSvgSmall(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:11px;height:11px;vertical-align:-1px"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4" stroke-linecap="round"/></svg>'; }
 
 /* ---------- 渲染:对话线程 ---------- */
 function renderThread(){
@@ -1085,6 +1257,91 @@ $('#reloadBtn').addEventListener('click',()=>$('#folderInput').click());
 $('#folderInput').addEventListener('change',e=>handleFiles(e.target.files));
 $('#jsonInput').addEventListener('change',e=>handleFiles(e.target.files));
 $('#searchInput').addEventListener('input',e=>{ state.query=e.target.value; renderSidebar(); });
+
+// 代码块"一键复制"(事件委托)
+document.addEventListener('click',(e)=>{
+  const btn=e.target.closest && e.target.closest('.codecopy');
+  if(!btn) return;
+  const id=btn.getAttribute('data-cb');
+  const raw=(window.__codeStore||{})[id];
+  if(raw==null) return;
+  const done=()=>{ btn.classList.add('copied'); const t=btn.querySelector('.copytxt'); const old=t?t.textContent:''; if(t)t.textContent='已复制'; setTimeout(()=>{ btn.classList.remove('copied'); if(t)t.textContent=old||'复制'; },1500); };
+  if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(raw).then(done).catch(()=>fallbackCopy(raw,done)); }
+  else fallbackCopy(raw,done);
+});
+function fallbackCopy(text,cb){ try{ const ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); cb&&cb(); }catch(e){} }
+
+// KaTeX 异步加载完成后,补渲染当前线程里的公式回退占位
+window.addEventListener('load',()=>{ if(window.katex && state.activeId) renderThread(); });
+
+/* ---------- 统计页面 ---------- */
+function computeStats(){
+  const convs=state.convs||[];
+  let humanMsgs=0, aiMsgs=0, humanChars=0, aiChars=0, thinkMs=0, toolCalls=0, files=0, thinkBlocks=0;
+  const toolCount={}; const dayCount={}; let earliest=null, latest=null;
+  for(const conv of convs){
+    const msgs=(conv.data&&conv.data.chat_messages)||[];
+    for(const m of msgs){
+      const txt=(Array.isArray(m.content)?m.content:[]).filter(b=>b&&b.type==='text').map(b=>b.text||'').join('');
+      if(m.sender==='human'){ humanMsgs++; humanChars+=txt.length; }
+      else { aiMsgs++; aiChars+=txt.length; }
+      for(const b of (Array.isArray(m.content)?m.content:[])){
+        if(b.type==='tool_use'){ toolCalls++; toolCount[b.name]=(toolCount[b.name]||0)+1; }
+        if(b.type==='thinking'){ thinkBlocks++; if(b.start_timestamp&&b.stop_timestamp){ const a=new Date(b.start_timestamp),z=new Date(b.stop_timestamp); if(!isNaN(a)&&!isNaN(z)&&z>=a) thinkMs+=(z-a); } }
+      }
+      files+=((m.files||[]).length);
+      for(const bb of (Array.isArray(m.content)?m.content:[])){ if(bb.type==='tool_result'&&Array.isArray(bb.content)) files+=bb.content.filter(x=>x&&x.type==='local_resource').length; }
+      const ts=m.created_at; if(ts){ const d=new Date(ts); if(!isNaN(d)){ if(!earliest||d<earliest)earliest=d; if(!latest||d>latest)latest=d; const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; dayCount[key]=(dayCount[key]||0)+1; } }
+    }
+  }
+  const days=Object.keys(dayCount).length;
+  const busiest=Object.entries(dayCount).sort((a,b)=>b[1]-a[1])[0];
+  const topTools=Object.entries(toolCount).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  return {convs:convs.length,humanMsgs,aiMsgs,humanChars,aiChars,thinkMs,toolCalls,files,thinkBlocks,days,busiest,topTools,earliest,latest};
+}
+function openStats(){
+  const s=computeStats();
+  const body=$('#statsBody');
+  const spanDays = (s.earliest&&s.latest)? Math.max(1, Math.round((s.latest-s.earliest)/86400000)+1) : 0;
+  const cell=(num,lbl)=>`<div class="stat-cell"><div class="stat-num">${num}</div><div class="stat-lbl">${lbl}</div></div>`;
+  let html='<div class="stat-grid">';
+  html+=cell(s.convs,'个对话存档');
+  html+=cell(s.humanMsgs,'你发的消息');
+  html+=cell(s.humanChars.toLocaleString(),'你打的字数');
+  html+=cell(s.aiMsgs,'Claude 回复');
+  html+=cell(fmtDur(s.thinkMs),'Claude 累计思考');
+  html+=cell(s.toolCalls.toLocaleString(),'工具调用次数');
+  html+=cell(s.files,'保存的文件数');
+  html+=cell(spanDays?spanDays+' 天':'—','跨越时间');
+  html+='</div>';
+
+  // 趣味
+  html+='<div class="stat-sec">一些有意思的数字</div>';
+  const ratio = s.humanMsgs? (s.aiChars/Math.max(1,s.humanChars)) : 0;
+  html+=`<div class="stat-row"><span>平均每条你说</span><b>${s.humanMsgs?Math.round(s.humanChars/s.humanMsgs):0} 字</b></div>`;
+  html+=`<div class="stat-row"><span>Claude 回复/你输入 字数比</span><b>${ratio?ratio.toFixed(1):0} 倍</b></div>`;
+  html+=`<div class="stat-row"><span>平均每个对话思考</span><b>${s.convs?fmtDur(s.thinkMs/s.convs):'0秒'}</b></div>`;
+  html+=`<div class="stat-row"><span>思考块总数</span><b>${s.thinkBlocks}</b></div>`;
+  if(s.busiest) html+=`<div class="stat-row"><span>最忙的一天</span><b>${s.busiest[0]} (${s.busiest[1]} 条消息)</b></div>`;
+  if(s.earliest) html+=`<div class="stat-row"><span>最早一条</span><b>${fmtClock(s.earliest.toISOString())}</b></div>`;
+  if(s.latest) html+=`<div class="stat-row"><span>最近一条</span><b>${fmtClock(s.latest.toISOString())}</b></div>`;
+
+  // 工具排行
+  if(s.topTools.length){
+    html+='<div class="stat-sec">最常用的工具</div>';
+    const max=s.topTools[0][1];
+    for(const [name,c] of s.topTools){
+      html+=`<div class="stat-row" style="border:0;padding-bottom:2px"><span><b>${esc(name)}</b></span><span>${c} 次</span></div>`;
+      html+=`<div class="stat-bar"><i style="width:${Math.round(c/max*100)}%"></i></div>`;
+    }
+  }
+  if(!s.convs) html='<div style="color:var(--text-3);font-family:var(--sans);padding:20px 0;text-align:center">还没有载入任何对话。先「选择存档文件夹」。</div>';
+  body.innerHTML=html;
+  $('#statsModal').style.display='flex';
+}
+$('#statsBtn').addEventListener('click',openStats);
+$('#statsClose').addEventListener('click',()=>$('#statsModal').style.display='none');
+$('#statsModal').querySelector('.stats-bd').addEventListener('click',()=>$('#statsModal').style.display='none');
 
 renderThread();
 </script>

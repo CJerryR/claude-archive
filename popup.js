@@ -71,6 +71,23 @@ async function paintProgress() {
 }
 function escHtml(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
+let _allTaskTimer = null;
+async function paintAllTask() {
+  const box = document.getElementById('allTask');
+  if (!box) return;
+  let t = null;
+  try { t = (await chrome.storage.local.get('allTask')).allTask; } catch (e) {}
+  if (!t) { box.style.display = 'none'; return; }
+  const pct = t.total ? Math.round((t.done || 0) / t.total * 100) : 0;
+  const phase = t.phase === 'check' ? '检查完整性' : '全部下载';
+  box.style.display = '';
+  box.innerHTML = `${phase} · ${t.done || 0}/${t.total || 0}
+    <span class="at-cur">正在处理：${escHtml(t.cur || '')}</span>
+    <span class="at-bar"><i style="width:${pct}%"></i></span>`;
+}
+function startAllTaskPoll() { stopAllTaskPoll(); _allTaskTimer = setInterval(paintAllTask, 700); paintAllTask(); }
+function stopAllTaskPoll() { if (_allTaskTimer) { clearInterval(_allTaskTimer); _allTaskTimer = null; } const b = document.getElementById('allTask'); if (b) b.style.display = 'none'; }
+
 async function refresh() {
   try {
     const r = await send({ kind: 'popup:getState' });
@@ -108,13 +125,30 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   $('btnSaveAll').addEventListener('click', async () => {
-    toast('run', '正在保存本次跟踪的全部对话…');
+    toast('run', '正在下载全部已跟踪对话…(会逐个加载,请稍候)');
+    startAllTaskPoll();
     const r = await send({ kind: 'popup:saveAll' });
+    stopAllTaskPoll();
     if (r && r.ok) {
-      toast('ok', `已保存 ${r.saved} 个对话` + (r.files ? ` · ${r.files} 文件` : ''));
+      toast('ok', `完成 · 保存 ${r.saved}/${r.total} 个对话` + (r.files ? ` · ${r.files} 文件` : '') + (r.failed ? ` · ${r.failed} 个未能加载` : ''));
       refresh();
     } else {
       toast('err', r?.error || '操作失败');
+    }
+  });
+
+  $('btnCheck').addEventListener('click', async () => {
+    toast('run', '正在检查保存完整性…(逐个核对并补下缺失)');
+    startAllTaskPoll();
+    const r = await send({ kind: 'popup:checkIntegrity' });
+    stopAllTaskPoll();
+    if (r && r.ok) {
+      if (r.note) toast('ok', r.note);
+      else if (r.fixed > 0) toast('ok', `检查 ${r.checked} 个对话 · 补下 ${r.fixed} 个缺失文件(${r.convWithMissing} 个对话有缺失)`);
+      else toast('ok', `检查完成 · ${r.checked} 个对话都完整,无缺失`);
+      refresh();
+    } else {
+      toast('err', r?.error || '检查失败');
     }
   });
 

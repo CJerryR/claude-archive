@@ -10,14 +10,14 @@
   :root[data-theme="dark"]{
     --bg:#1f1e1d; --bg-side:#1a1917; --bg-elev:#2a2826; --bg-user:#2a2826;
     --text:#faf9f5; --text-2:#c2bfb6; --text-3:#8b877e; --text-faint:#6b675f;
-    --border:#3a3833; --border-soft:#2b2a27; --accent:#d97757; --accent-soft:#3a2a23;
+    --border:#3a3833; --border-soft:#2b2a27; --accent:#d97757; --accent-soft:#3a2a23; --code-border:#54392f;
     --code-bg:#1a1917; --detail-bg:#262523; --active:#2f2d2a; --hover:#282724;
     --scroll:#403e38;
   }
   :root[data-theme="light"]{
     --bg:#ffffff; --bg-side:#f5f4ee; --bg-elev:#f0efe8; --bg-user:#f3f1e9;
     --text:#2b2925; --text-2:#69655d; --text-3:#94908857; --text-3:#928e86; --text-faint:#b3afa6;
-    --border:#e7e4db; --border-soft:#eeece4; --accent:#c4623d; --accent-soft:#f5e7df;
+    --border:#e7e4db; --border-soft:#eeece4; --accent:#c4623d; --accent-soft:#f5e7df; --code-border:#e9d3c7;
     --code-bg:#f4f3ec; --detail-bg:#f6f5ef; --active:#eae8df; --hover:#efeee7;
     --scroll:#d8d5cc;
   }
@@ -84,6 +84,7 @@
   }
   .conv-item:hover{background:var(--hover);color:var(--text)}
   .conv-item.active{background:var(--active);color:var(--text);font-weight:500}
+  mark.hk{color:var(--accent);background:var(--accent-soft);border:1px solid var(--code-border);border-radius:4px;padding:0 3px;font-weight:600}
   .side-empty{padding:24px 14px;color:var(--text-3);font-size:13px;text-align:center;line-height:1.7}
 
   .side-foot{
@@ -146,7 +147,7 @@
     margin:0 0 14px;padding:10px 16px;color:var(--text-2)}
   .md blockquote p:last-child{margin-bottom:0}
   .md hr{border:0;border-top:1px solid var(--border);margin:20px 0}
-  .md code{font-family:var(--mono);font-size:.86em;background:var(--code-bg);padding:2px 5px;border-radius:5px}
+  .md code{font-family:var(--mono);font-size:.86em;color:var(--accent);background:var(--accent-soft);border:1px solid var(--code-border);padding:1.5px 6px;border-radius:6px}
   /* 代码块:顶栏(语言+复制) + VSCode 风格代码区 */
   .codewrap{margin:0 0 14px;border:1px solid var(--border-soft);border-radius:10px;overflow:hidden;background:#1e1e1e}
   .codebar{display:flex;align-items:center;justify-content:space-between;padding:6px 10px 6px 14px;
@@ -507,6 +508,20 @@ applyTheme((()=>{ try{ return localStorage.getItem('cca_theme')||'dark'; }catch{
 
 /* ---------- Markdown(紧凑实现:标题/列表/引用/表格/代码/行内) ---------- */
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+// 在文本里高亮搜索关键词(大小写不敏感),返回已转义 HTML;无 q 时等同 esc
+function hlite(text, q){
+  const s=String(text==null?'':text);
+  if(!q) return esc(s);
+  const ql=q.toLowerCase(), sl=s.toLowerCase();
+  let out='', i=0;
+  while(i<s.length){
+    const at=sl.indexOf(ql, i);
+    if(at<0){ out+=esc(s.slice(i)); break; }
+    out+=esc(s.slice(i, at))+'<mark class="hk">'+esc(s.slice(at, at+ql.length))+'</mark>';
+    i=at+ql.length;
+  }
+  return out;
+}
 function inlineMd(t){
   // 先抽出行内公式,避免被转义/加粗破坏
   const im=[];
@@ -1044,7 +1059,7 @@ function branchSwitcher(sibs, curUuid, conv){
   const cnt=ce('span','bcount', (idx+1)+' / '+sibs.length);
   if(idx<=0) prev.disabled=true;
   if(idx>=sibs.length-1) next.disabled=true;
-  const go=(targetUuid)=>{ conv._leaf = deepestLeaf(conv.data, targetUuid); renderThread(); };
+  const go=(targetUuid)=>{ conv._leaf = deepestLeaf(conv.data, targetUuid); renderThread({focusUuid: targetUuid}); };
   prev.addEventListener('click',(e)=>{ e.stopPropagation(); if(idx>0) go(sibs[idx-1].uuid); });
   next.addEventListener('click',(e)=>{ e.stopPropagation(); if(idx<sibs.length-1) go(sibs[idx+1].uuid); });
   wrap.appendChild(prev); wrap.appendChild(cnt); wrap.appendChild(next);
@@ -1162,13 +1177,12 @@ function msgThinkMs(m){
 function sparkSvgSmall(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:11px;height:11px;vertical-align:-1px"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4" stroke-linecap="round"/></svg>'; }
 
 /* ---------- 渲染:对话线程 ---------- */
-function renderThread(){
+function renderThread(opts){
   const conv=state.byId.get(state.activeId);
   const thread=$('#thread'); thread.innerHTML='';
   if(!conv){ thread.appendChild(emptyState()); $('#topTitle').textContent=''; $('#topModel').textContent=''; return; }
   $('#topTitle').textContent=conv.name||'未命名对话';
   $('#topModel').textContent=conv.model||'';
-  // 合并来源提示
   const mb=$('#topMerged');
   if(mb){
     if(conv._mergedFrom>1){ mb.style.display=''; mb.textContent='已合并 '+conv._mergedFrom+' 版·去重'; }
@@ -1177,12 +1191,19 @@ function renderThread(){
   const wrap=ce('div','thread-inner');
   const kids=buildChildMap(conv.data);
   const path=activePath(conv.data, conv._leaf);
+  let focusEl=null;
   for(const m of path){
     const sibs=kids.get(m.parent_message_uuid||'__root__')||[];
-    wrap.appendChild(messageEl(m, conv, sibs));
+    const el=messageEl(m, conv, sibs);
+    if(opts && opts.focusUuid && m.uuid===opts.focusUuid) focusEl=el;
+    wrap.appendChild(el);
   }
   thread.appendChild(wrap);
-  thread.scrollTop=0;
+  // 定位:切换分支时滚到该分支消息;否则(打开对话)滚到最新一条(底部),与 Claude 网页一致
+  requestAnimationFrame(()=>{
+    if(focusEl){ focusEl.scrollIntoView({block:'center'}); }
+    else { thread.scrollTop = thread.scrollHeight; }
+  });
 }
 
 /* ---------- 渲染:侧栏(按日期分组) ---------- */
@@ -1209,7 +1230,7 @@ function renderSidebar(){
   for(const [k,items] of groups){
     const g=ce('div','side-group'); g.appendChild(ce('div','side-group-t',esc(k)));
     items.forEach(c=>{
-      const it=ce('button','conv-item'+(c.uuid===state.activeId?' active':''),'<span class="conv-name">'+esc(c.name||'未命名对话')+'</span>');
+      const it=ce('button','conv-item'+(c.uuid===state.activeId?' active':''),'<span class="conv-name">'+hlite(c.name||'未命名对话', q)+'</span>');
       it.addEventListener('click',()=>{ state.activeId=c.uuid; renderSidebar(); renderThread(); });
       g.appendChild(it);
     });
@@ -1224,7 +1245,7 @@ function emptyState(){
   e.innerHTML='<div class="logo">Claude</div>'+
     '<p>选择你的 <code>ClaudeArchive</code> 文件夹,在这里以 Claude 网页版的样子浏览全部对话 —— 含思考过程、工具调用与文件。<br>所有数据只在本机加载,不上传任何地方。</p>';
   const btn=ce('button','cta','<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" stroke-linejoin="round"/></svg>选择存档文件夹');
-  btn.addEventListener('click',()=>$('#folderInput').click());
+  btn.addEventListener('click',()=>pickFolder());
   e.appendChild(btn);
   return e;
 }
@@ -1301,11 +1322,59 @@ function toast(msg){
   clearTimeout(_tt); _tt=setTimeout(()=>t.classList.remove('show'),2400);
 }
 
+/* ---------- 选择文件夹:优先 File System Access API(在 chrome-extension:// 页里可靠),
+   不可用时回退到 webkitdirectory input ---------- */
+async function pickFolder(){
+  // 优先用 showDirectoryPicker(Chrome/Edge 支持;扩展页里比隐藏 input 更可靠)
+  if(window.showDirectoryPicker){
+    let dirHandle;
+    try{
+      dirHandle = await window.showDirectoryPicker({ id:'claude-archive', mode:'read' });
+    }catch(err){
+      if(err && err.name==='AbortError') return; // 用户取消
+      // 某些环境抛 SecurityError/NotAllowedError → 回退 input
+      $('#folderInput').click(); return;
+    }
+    try{
+      toast('正在读取文件夹…');
+      const files = await readDirRecursive(dirHandle, dirHandle.name);
+      await handleFiles(files);
+    }catch(err){
+      toast('读取文件夹失败:'+(err && err.message || err));
+    }
+    return;
+  }
+  // 回退:传统目录选择 input
+  $('#folderInput').click();
+}
+// 递归读取目录句柄 → File[](每个带 webkitRelativePath,兼容 handleFiles)
+async function readDirRecursive(dirHandle, prefix){
+  const out=[];
+  async function walk(handle, path){
+    for await (const [name, h] of handle.entries()){
+      const rel = path ? path+'/'+name : name;
+      if(h.kind==='file'){
+        try{
+          const f = await h.getFile();
+          // 注入 webkitRelativePath(只读属性,用 defineProperty 覆盖)
+          try{ Object.defineProperty(f,'webkitRelativePath',{value:rel,configurable:true}); }catch(e){}
+          out.push(f);
+        }catch(e){}
+      } else if(h.kind==='directory'){
+        // 跳过明显无关的超大目录可在此加判断;这里全量读取
+        await walk(h, rel);
+      }
+    }
+  }
+  await walk(dirHandle, prefix);
+  return out;
+}
+
 /* ---------- 事件 ---------- */
 $('#themeBtn').addEventListener('click',()=>applyTheme(document.documentElement.dataset.theme==='dark'?'light':'dark'));
-$('#loadBtn').addEventListener('click',()=>$('#folderInput').click());
+$('#loadBtn').addEventListener('click',pickFolder);
 $('#loadJsonBtn').addEventListener('click',()=>$('#jsonInput').click());
-$('#reloadBtn').addEventListener('click',()=>$('#folderInput').click());
+$('#reloadBtn').addEventListener('click',pickFolder);
 $('#folderInput').addEventListener('change',e=>handleFiles(e.target.files));
 $('#jsonInput').addEventListener('change',e=>handleFiles(e.target.files));
 $('#searchInput').addEventListener('input',e=>{ state.query=e.target.value; renderSidebar(); });

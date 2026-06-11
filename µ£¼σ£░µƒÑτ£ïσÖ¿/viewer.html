@@ -56,6 +56,8 @@
   }
   .load-btn:hover{background:var(--hover)}
   .load-btn svg{width:17px;height:17px;flex:none;color:var(--accent)}
+  .load-btn-sub{margin-top:6px;padding:7px 11px;font-size:12.5px;color:var(--text-2)}
+  .load-btn-sub svg{width:15px;height:15px}
 
   .search{padding:8px 12px 4px;position:relative}
   .search svg{position:absolute;left:22px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--text-3)}
@@ -100,6 +102,10 @@
   .top-model{
     font-family:var(--mono);font-size:11px;color:var(--text-3);background:var(--bg-elev);
     padding:3px 8px;border-radius:6px;
+  }
+  .top-merged{
+    font-family:var(--sans);font-size:11px;color:var(--accent);background:var(--accent-soft);
+    padding:3px 9px;border-radius:6px;font-weight:600;
   }
   .top-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
   .top-btn{
@@ -363,7 +369,12 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" stroke-linejoin="round"/></svg>
         选择存档文件夹
       </button>
+      <button class="load-btn load-btn-sub" id="loadJsonBtn" title="可同时选同一对话的多份 JSON,自动合并去重">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3v5h5M7 3h7l5 5v11a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" stroke-linejoin="round"/></svg>
+        选 JSON(可多选合并)
+      </button>
       <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
+      <input type="file" id="jsonInput" accept=".json,application/json" multiple hidden>
     </div>
 
     <div class="search">
@@ -382,6 +393,7 @@
     <header class="topbar">
       <span class="top-title" id="topTitle"></span>
       <span class="top-model" id="topModel"></span>
+      <span class="top-merged" id="topMerged" style="display:none"></span>
       <div class="top-actions">
         <button class="top-btn" id="reloadBtn" title="重新选择文件夹">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" stroke-linejoin="round"/></svg>
@@ -459,8 +471,19 @@ function mdToHtml(src){
 function activePath(data, leafOverride){
   const msgs = Array.isArray(data&&data.chat_messages)?data.chat_messages:[];
   const by = new Map(msgs.map(m=>[m.uuid,m]));
-  const leaf = leafOverride && by.has(leafOverride) ? leafOverride : (data && data.current_leaf_message_uuid);
+  let leaf = leafOverride && by.has(leafOverride) ? leafOverride : (data && data.current_leaf_message_uuid);
   if(leaf && by.has(leaf)){
+    // current_leaf 有时不是最深(后续消息未更新指针);沿"最新的子"继续下钻到真正叶子
+    const kids=new Map();
+    for(const m of msgs){ const p=m.parent_message_uuid||'__root__'; if(!kids.has(p))kids.set(p,[]); kids.get(p).push(m); }
+    for(const arr of kids.values()) arr.sort((a,b)=>((a.index||0)-(b.index||0))||String(a.created_at||'').localeCompare(String(b.created_at||'')));
+    const dseen=new Set();
+    while(!dseen.has(leaf)){
+      dseen.add(leaf);
+      const ch=kids.get(leaf);
+      if(!ch||!ch.length) break;
+      leaf=ch[ch.length-1].uuid; // 最新的子
+    }
     const path=[]; const seen=new Set(); let cur=by.get(leaf);
     while(cur && !seen.has(cur.uuid)){ seen.add(cur.uuid); path.push(cur); cur=by.get(cur.parent_message_uuid); }
     path.reverse(); if(path.length) return path;
@@ -704,6 +727,31 @@ function statusBadge(stopReason){
 }
 
 /* ---------- 分支(同一父节点下的多个兄弟)---------- */
+// 合并多份同一对话的 JSON:按 uuid 去重(取信息更全者),保留全部分支,leaf 用最新版
+function mergeConversations(datas){
+  if(datas.length===1) return datas[0];
+  const sorted=datas.slice().sort((x,y)=>String(y.updated_at||'').localeCompare(String(x.updated_at||'')));
+  const newest=sorted[0];
+  const score=(m)=>{
+    let s=(Array.isArray(m.content)?m.content.length:0)*10;
+    s+=JSON.stringify(m).length/1000;
+    if(m.stop_reason && m.stop_reason!=='user_canceled') s+=5; // 完成的优于被打断的
+    return s;
+  };
+  const byUuid=new Map();
+  for(const d of sorted){
+    for(const m of (d.chat_messages||[])){
+      const prev=byUuid.get(m.uuid);
+      if(!prev || score(m)>score(prev)) byUuid.set(m.uuid, m);
+    }
+  }
+  return {
+    ...newest,
+    chat_messages:[...byUuid.values()],
+    current_leaf_message_uuid:newest.current_leaf_message_uuid,
+    _archive:{...(newest._archive||{}), merged_from:datas.length}
+  };
+}
 function buildChildMap(data){
   const msgs=Array.isArray(data&&data.chat_messages)?data.chat_messages:[];
   const kids=new Map();
@@ -791,6 +839,12 @@ function renderThread(){
   if(!conv){ thread.appendChild(emptyState()); $('#topTitle').textContent=''; $('#topModel').textContent=''; return; }
   $('#topTitle').textContent=conv.name||'未命名对话';
   $('#topModel').textContent=conv.model||'';
+  // 合并来源提示
+  const mb=$('#topMerged');
+  if(mb){
+    if(conv._mergedFrom>1){ mb.style.display=''; mb.textContent='已合并 '+conv._mergedFrom+' 版·去重'; }
+    else mb.style.display='none';
+  }
   const wrap=ce('div','thread-inner');
   const kids=buildChildMap(conv.data);
   const path=activePath(conv.data, conv._leaf);
@@ -850,36 +904,65 @@ function emptyState(){
 async function handleFiles(fileList){
   const files=[...fileList];
   if(!files.length) return;
-  const folders=new Map(); // folderPath -> { json:File, files:Map(relName->File) }
+
+  // 1) 收集所有可能是"对话 JSON"的文件(conversation*.json 或任意 .json),以及各文件夹的 files/
+  const jsonFiles=[]; // {file, folder}
+  const folderFiles=new Map(); // folder -> Map(relName->File)
   for(const f of files){
     const rel=f.webkitRelativePath||f.name;
     const parts=rel.split('/');
-    if(parts[parts.length-1]==='conversation.json'){
-      const folder=parts.slice(0,-1).join('/');
-      const e=folders.get(folder)||{json:null,files:new Map()}; e.json=f; folders.set(folder,e);
+    const base=parts[parts.length-1];
+    const folder=parts.slice(0,-1).join('/');
+    if(/\.json$/i.test(base) && base!=='_index.json'){
+      jsonFiles.push({file:f, folder});
+    }
+    // files/ 子目录
+    const fi=rel.indexOf('/files/');
+    if(fi>=0){
+      const fdr=rel.slice(0,fi);
+      if(!folderFiles.has(fdr)) folderFiles.set(fdr,new Map());
+      folderFiles.get(fdr).set(rel.slice(fi+7), f);
     }
   }
-  for(const f of files){
-    const rel=f.webkitRelativePath||f.name;
-    for(const folder of folders.keys()){
-      const pre=folder+'/files/';
-      if(rel.startsWith(pre)){ folders.get(folder).files.set(rel.slice(pre.length),f); }
+
+  // 2) 解析 JSON,按对话 uuid 分组(同一对话的多版本会聚到一起)
+  const groups=new Map(); // uuid -> { datas:[], folders:Set }
+  for(const {file, folder} of jsonFiles){
+    let data; try{ data=JSON.parse(await file.text()); }catch{ continue; }
+    if(!Array.isArray(data.chat_messages)) continue; // 不是对话 JSON,跳过
+    const uuid=data.uuid||folder||file.name;
+    if(!groups.has(uuid)) groups.set(uuid,{datas:[],folders:new Set()});
+    groups.get(uuid).datas.push(data);
+    if(folder) groups.get(uuid).folders.add(folder);
+  }
+
+  // 3) 每组合并去重;合并其涉及文件夹的 files/
+  const convs=[]; const byId=new Map(); const foldersOut=new Map();
+  let mergedCount=0;
+  for(const [uuid,g] of groups){
+    const data = g.datas.length>1 ? (mergedCount++, mergeConversations(g.datas)) : g.datas[0];
+    // 合并这些文件夹的 files/(按文件名,后者不覆盖已存在)
+    const fileMap=new Map();
+    for(const fdr of g.folders){
+      const fm=folderFiles.get(fdr);
+      if(fm) for(const [n,fl] of fm){ if(!fileMap.has(n)) fileMap.set(n,fl); }
     }
+    const key='__'+uuid+'__';
+    foldersOut.set(key,{json:null,files:fileMap});
+    const conv={ uuid, name:data.name||'未命名对话', updated_at:data.updated_at||data.created_at||'',
+                 created_at:data.created_at||'', model:data.model||'', data, _folder:key,
+                 _mergedFrom: g.datas.length>1 ? g.datas.length : 0 };
+    convs.push(conv); byId.set(uuid, conv);
   }
-  const convs=[]; const byId=new Map();
-  for(const [folder,e] of folders){
-    if(!e.json) continue;
-    let data; try{ data=JSON.parse(await e.json.text()); }catch{ continue; }
-    const uuid=data.uuid||folder;
-    convs.push({ uuid, name:data.name||'未命名对话', updated_at:data.updated_at||data.created_at||'', created_at:data.created_at||'', model:data.model||'', data, _folder:folder });
-    byId.set(uuid, convs[convs.length-1]);
-  }
-  state.convs=convs; state.byId=byId; state.folders=folders;
+
+  state.convs=convs; state.byId=byId; state.folders=foldersOut;
   if(convs.length){
     state.activeId=convs.slice().sort((a,b)=>String(b.updated_at||'').localeCompare(String(a.updated_at||'')))[0].uuid;
   } else { state.activeId=null; }
   renderSidebar(); renderThread();
-  toast(convs.length ? ('已载入 '+convs.length+' 个对话') : '未在该文件夹找到 conversation.json');
+  if(!convs.length) toast('未找到对话 JSON(需含 chat_messages)');
+  else if(mergedCount) toast('已载入 '+convs.length+' 个对话('+mergedCount+' 个由多版本合并去重)');
+  else toast('已载入 '+convs.length+' 个对话');
 }
 
 /* ---------- toast ---------- */
@@ -892,8 +975,10 @@ function toast(msg){
 /* ---------- 事件 ---------- */
 $('#themeBtn').addEventListener('click',()=>applyTheme(document.documentElement.dataset.theme==='dark'?'light':'dark'));
 $('#loadBtn').addEventListener('click',()=>$('#folderInput').click());
+$('#loadJsonBtn').addEventListener('click',()=>$('#jsonInput').click());
 $('#reloadBtn').addEventListener('click',()=>$('#folderInput').click());
 $('#folderInput').addEventListener('change',e=>handleFiles(e.target.files));
+$('#jsonInput').addEventListener('change',e=>handleFiles(e.target.files));
 $('#searchInput').addEventListener('input',e=>{ state.query=e.target.value; renderSidebar(); });
 
 renderThread();

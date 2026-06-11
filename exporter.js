@@ -20,6 +20,15 @@ export function dirFor(conv) {
   return `${name}__${id}`;
 }
 
+// 对话辨识码:取 uuid 前 8 位(稳定、可读、足够区分)
+export function convHash(conv) {
+  return String(conv?.uuid ?? conv?.data?.uuid ?? 'unknown').replace(/[^0-9a-zA-Z-]/g, '').slice(0, 8) || 'unknown';
+}
+// files 下每个对话独立子目录:files/{对话码}/  —— 即使多对话文件汇到一处也不冲突
+export function filesDirFor(conv) {
+  return `files/${convHash(conv)}`;
+}
+
 // ---------- 活动分支重建 ----------
 // tree=True 时 chat_messages 含全部分支;沿 current_leaf_message_uuid 向上走出当前路径。
 export function activePath(data) {
@@ -246,9 +255,10 @@ export function collectAssets(data, orgId, convId) {
     const p = norm(u);
     if (!p) return;
     const key = 'path:' + fp.toLowerCase();   // 以路径为去重键
+    const base = fp.split('/').pop() || name || null;  // 真实文件名(带扩展名)优先
     const prev = byKey.get(key);
-    if (!prev) { byKey.set(key, { name: name || fp.split('/').pop() || null, path: p, uuid: uuid || null }); return; }
-    if (name && !prev.name) prev.name = name;
+    if (!prev) { byKey.set(key, { name: base, path: p, uuid: uuid || null }); return; }
+    if (base && !prev.name) prev.name = base;
   };
 
   for (const m of (data?.chat_messages || [])) {

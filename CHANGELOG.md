@@ -51,6 +51,16 @@
 
 ---
 
+## [2.10.0] - 2026-06-12
+
+### ✨ 新增（Added）
+- **支持自定义中转站 / 镜像站**：弹窗新增「支持的网站 / 中转站」区,可添加任意中转站域名(如 `cloudlian.cn`)。添加时会请求一次该网站的访问权限,授权后通过动态注册内容脚本立即在该站点启用抓取,**无需重装扩展**;可随时移除并撤销权限。内置 `claude.ai`、`claude.hk.cn` 开箱即用。
+
+### 🔧 改进（Changed）
+- **重排弹窗布局**:常用操作(保存当前对话、全部下载、检查完整性、打开查看器、导出索引/日志)统一**置顶**,不必再滚到底部;「文件下载进度」「支持的网站」「捕获选项」改为可折叠分组,界面更清爽。
+
+---
+
 ## [2.9.1] - 2026-06-12
 
 ### 🐛 修复（Fixed）
@@ -330,7 +340,7 @@
 标注 _(开发期)_ 的版本为 1.0.0–1.8.0，于项目早期密集迭代完成，日期为对应开发阶段的近似值；
 1.9.0 起的版本日期可精确对应。所有版本的功能演进均如实记录。
 
-[Unreleased]: https://github.com/CJerryR/claude-archive/compare/v2.9.1...HEAD
+[Unreleased]: https://github.com/CJerryR/claude-archive/compare/v2.10.0...HEAD
 [2.9.0]: https://github.com/CJerryR/claude-archive/releases/tag/v2.9.0
 [2.8.0]: https://github.com/CJerryR/claude-archive/releases/tag/v2.8.0
 [2.7.1]: https://github.com/CJerryR/claude-archive/releases/tag/v2.7.1

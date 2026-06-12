@@ -93,6 +93,7 @@ async function refresh() {
     const r = await send({ kind: 'popup:getState' });
     if (r && r.ok) { paintSettings(r.settings); paintState(r); paintBind(r.direct); paintSpeed(r.settings); }
     await paintProgress();
+    await paintSites();
   } catch (e) {
     toast('err', '无法连接后台,请重载扩展');
   }
@@ -120,6 +121,52 @@ function paintBind(d) {
 function paintSpeed(s) {
   const sel = $('maxSpeed'); if (!sel) return;
   sel.value = String(Number(s && s.maxSpeedMBps || 0));
+}
+
+// 中转站列表渲染
+async function paintSites() {
+  const box = $('siteList'); if (!box) return;
+  let r; try { r = await send({ kind: 'popup:listSites' }); } catch (e) { return; }
+  if (!r || !r.ok) return;
+  box.innerHTML = '';
+  for (const h of (r.builtin || [])) {
+    const row = document.createElement('div'); row.className = 'site-row';
+    row.innerHTML = `<span class="host">${h}</span><span class="tag builtin">内置</span>`;
+    box.appendChild(row);
+  }
+  if (!(r.sites || []).length) {
+    const e = document.createElement('div'); e.className = 'site-empty'; e.textContent = '还没有添加自定义中转站。';
+    box.appendChild(e);
+  }
+  for (const h of (r.sites || [])) {
+    const row = document.createElement('div'); row.className = 'site-row';
+    row.innerHTML = `<span class="host">${h}</span><span class="tag">自定义</span><button class="rm" title="移除并撤销权限">✕</button>`;
+    row.querySelector('.rm').addEventListener('click', async () => {
+      const rr = await send({ kind: 'popup:removeSite', host: h });
+      if (rr && rr.ok) { toast('ok', `已移除 ${h}`); paintSites(); }
+    });
+    box.appendChild(row);
+  }
+}
+// 规范化输入 → host
+function hostFromInput(v) {
+  let s = String(v || '').trim(); if (!s) return null;
+  if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+  try { return new URL(s).hostname || null; } catch (e) { return null; }
+}
+async function addSite() {
+  const inp = $('siteInput'); if (!inp) return;
+  const host = hostFromInput(inp.value);
+  if (!host) { toast('err', '请输入有效域名,如 cloudlian.cn'); return; }
+  const origin = `https://${host}/*`;
+  let granted = false;
+  // 权限请求必须在用户手势内直接调用
+  try { granted = await chrome.permissions.request({ origins: [origin] }); }
+  catch (e) { toast('err', '权限请求失败:' + (e && e.message || e)); return; }
+  if (!granted) { toast('err', '未授予该网站权限,无法添加'); return; }
+  const r = await send({ kind: 'popup:addSiteGranted', host });
+  if (r && r.ok) { inp.value = ''; toast('ok', `已添加 ${r.host},在该站点刷新即可自动存档`); paintSites(); }
+  else toast('err', r?.error || '添加失败');
 }
 
 // 绑定开关
@@ -160,6 +207,10 @@ document.addEventListener('DOMContentLoaded', () => {
   $('btnMail') && $('btnMail').addEventListener('click', () => {
     try { chrome.tabs.create({ url: 'mailto:2513100@mail.nankai.edu.cn?subject=' + encodeURIComponent('Claude Archive 反馈') }); } catch {}
   });
+
+  // 添加中转站
+  $('btnAddSite') && $('btnAddSite').addEventListener('click', addSite);
+  $('siteInput') && $('siteInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') addSite(); });
 
   $('btnSaveCurrent').addEventListener('click', async () => {
     toast('run', '正在抓取当前对话…');

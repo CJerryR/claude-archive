@@ -193,6 +193,33 @@
     animation: sp .6s linear infinite; flex: none;
   }
   @keyframes sp { to { transform: rotate(360deg); } }
+  /* 折叠分组 */
+  .grp { border:1px solid var(--line); border-radius:12px; margin:10px 16px 0; overflow:hidden; background:var(--card,rgba(255,255,255,.02)); }
+  .grp>summary { list-style:none; cursor:pointer; padding:11px 14px; font-size:12.5px; font-weight:600; color:var(--ink); display:flex; align-items:center; gap:7px; user-select:none; }
+  .grp>summary::-webkit-details-marker { display:none; }
+  .grp>summary::before { content:''; width:6px; height:6px; border-right:1.6px solid var(--ink2); border-bottom:1.6px solid var(--ink2); transform:rotate(-45deg); transition:transform .16s; }
+  .grp[open]>summary::before { transform:rotate(45deg); }
+  .grp>summary:hover { background:var(--hover,rgba(255,255,255,.03)); }
+  .grp .opts, .grp .grp-bd, .grp .progress-list { padding:2px 14px 12px; }
+  .grp .progress-list { padding-top:8px; }
+
+  /* 中转站 */
+  .site-hint { font-size:11px; color:var(--ink2); line-height:1.6; margin:4px 0 9px; }
+  .site-add { display:flex; gap:7px; margin-bottom:9px; }
+  .site-add input { flex:1; min-width:0; background:var(--bg-elev,rgba(255,255,255,.04)); border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:7px 10px; font-size:12.5px; outline:none; }
+  .site-add input:focus { border-color:var(--accent); }
+  .mini-btn { flex:none; background:var(--accent); color:#fff; border:0; border-radius:8px; padding:0 14px; font-size:12.5px; font-weight:600; cursor:pointer; }
+  .mini-btn:hover { filter:brightness(1.06); }
+  .mini-btn.ghost { background:transparent; color:var(--ink2); border:1px solid var(--line); }
+  .site-list { display:flex; flex-direction:column; gap:6px; }
+  .site-row { display:flex; align-items:center; gap:8px; padding:7px 10px; border:1px solid var(--line); border-radius:8px; font-size:12.5px; }
+  .site-row .host { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--mono,monospace); }
+  .site-row .tag { flex:none; font-size:10px; padding:1px 7px; border-radius:999px; background:var(--accent-soft,rgba(196,98,61,.14)); color:var(--accent); }
+  .site-row .tag.builtin { background:rgba(120,120,120,.16); color:var(--ink2); }
+  .site-row .rm { flex:none; background:transparent; border:0; color:var(--ink2); cursor:pointer; font-size:14px; padding:2px 5px; border-radius:6px; }
+  .site-row .rm:hover { background:rgba(220,80,70,.15); color:#e0796d; }
+  .site-empty { font-size:11.5px; color:var(--ink2); padding:4px 2px; }
+
 </style>
 </head>
 <body>
@@ -230,11 +257,77 @@
     <div class="meta" id="curMeta"></div>
   </div>
 
-  <div class="section-t">文件下载进度</div>
-  <div class="progress-list" id="progressList"><div class="prog-empty">暂无记录,开始抓取后这里显示每个对话的文件保存进度。</div></div>
+  <div class="toast" id="toast"></div>
 
-  <div class="section-t">捕获选项</div>
-  <div class="opts">
+  <!-- 常用操作:置顶,不必再滚到底部 -->
+  <div class="actions">
+    <button class="act primary" id="btnSaveCurrent" title="抓取你当前打开的这个对话(含完整思考链、工具调用、文件),保存到本地 ClaudeArchive">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      保存当前对话(全量)
+    </button>
+    <div class="act-desc">把正在看的这个对话完整存到本地(已存的文件会自动跳过)</div>
+
+    <div class="act-row">
+      <button class="act" id="btnSaveAll" title="遍历本地已跟踪的全部对话,逐个加载并保存记录+文件;已存文件自动跳过">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        全部下载
+      </button>
+      <button class="act" id="btnCheck" title="逐个检查已跟踪对话:对比应有文件与本地已存,自动补下缺失的文件">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 12l2 2 4-4M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        检查完整性
+      </button>
+    </div>
+
+    <button class="act" id="btnViewer" title="打开仿 Claude 网页版的本地查看器,浏览已保存的对话">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 18v3M16 18v3M7 21h10" stroke-linecap="round"/></svg>
+      打开查看器
+    </button>
+
+    <div class="act-row">
+      <button class="act" id="btnIndex" title="把已跟踪对话清单导出成 _index.json(对话名、消息数、更新时间)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h10" stroke-linecap="round"/></svg>
+        导出索引
+      </button>
+      <button class="act" id="btnLog" title="导出最近的运行日志(追踪/保存每一步),用于排查追踪不上的问题">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 8h10M7 12h10M7 16h6" stroke-linecap="round"/><rect x="3" y="4" width="18" height="16" rx="2"/></svg>
+        导出日志
+      </button>
+    </div>
+
+    <div class="alltask" id="allTask" style="display:none"></div>
+  </div>
+
+  <!-- 直写模式绑定状态 -->
+  <div class="bindbar" id="bindBar">
+    <span class="bind-ic">🔗</span>
+    <span class="bind-txt" id="bindTxt">直写模式:检查中…</span>
+    <button class="bind-btn" id="btnBind" style="display:none">绑定文件夹</button>
+    <button class="bind-btn" id="btnRescan" style="display:none" title="从已绑定文件夹重新扫描,恢复跟踪索引">恢复索引</button>
+  </div>
+
+  <!-- 文件下载进度(折叠) -->
+  <details class="grp">
+    <summary>文件下载进度</summary>
+    <div class="progress-list" id="progressList"><div class="prog-empty">暂无记录,开始抓取后这里显示每个对话的文件保存进度。</div></div>
+  </details>
+
+  <!-- 中转站 / 镜像站(折叠) -->
+  <details class="grp">
+    <summary>支持的网站 / 中转站</summary>
+    <div class="grp-bd">
+      <div class="site-hint">内置支持 claude.ai 与 claude.hk.cn。用过其他中转站(如 cloudlian.cn)可在此添加,会请求一次该网站的访问权限,授权后即可在该站自动存档,无需重装。</div>
+      <div class="site-add">
+        <input id="siteInput" placeholder="例如 cloudlian.cn 或 https://xxx.com" autocomplete="off">
+        <button class="mini-btn" id="btnAddSite">添加</button>
+      </div>
+      <div class="site-list" id="siteList"></div>
+    </div>
+  </details>
+
+  <!-- 捕获选项(折叠收纳,默认展开) -->
+  <details class="grp" open>
+    <summary>捕获选项</summary>
+    <div class="opts">
     <div class="opt">
       <div class="txt"><div class="t">自动写盘</div><div class="d">捕获后自动保存到下载目录</div></div>
       <label class="sw"><input type="checkbox" id="autoSave"><span class="track"></span><span class="knob"></span></label>
@@ -272,58 +365,12 @@
       <div class="txt"><div class="t">调试日志</div><div class="d">在 Service Worker 控制台打印「追踪→保存」每一步,排查追踪不上的问题</div></div>
       <label class="sw"><input type="checkbox" id="debugLog"><span class="track"></span><span class="knob"></span></label>
     </div>
-  </div>
-
-  <!-- 直写模式绑定状态 -->
-  <div class="bindbar" id="bindBar">
-    <span class="bind-ic">🔗</span>
-    <span class="bind-txt" id="bindTxt">直写模式:检查中…</span>
-    <button class="bind-btn" id="btnBind" style="display:none">绑定文件夹</button>
-    <button class="bind-btn" id="btnRescan" style="display:none" title="从已绑定文件夹重新扫描,恢复跟踪索引">恢复索引</button>
-  </div>
-
-  <div class="toast" id="toast"></div>
-
-  <div class="actions">
-    <button class="act primary" id="btnSaveCurrent" title="抓取你当前打开的这个对话(含完整思考链、工具调用、文件),保存到本地 ClaudeArchive">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      保存当前对话(全量)
-    </button>
-    <div class="act-desc">把正在看的这个对话完整存到本地(已存的文件会自动跳过)</div>
-
-    <button class="act" id="btnSaveAll" title="遍历本地已跟踪的全部对话,逐个加载并保存记录+文件;已存文件自动跳过">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-      全部下载(所有已跟踪对话)
-    </button>
-    <div class="act-desc">把所有跟踪过的对话的记录和文件都下载一遍,缺啥补啥</div>
-
-    <button class="act" id="btnCheck" title="逐个检查已跟踪对话:对比应有文件与本地已存,自动补下缺失的文件">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 12l2 2 4-4M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      检查保存完整性(补下缺失文件)
-    </button>
-    <div class="act-desc">检查每个对话文件是否齐全,把漏掉的自动下载回来</div>
-
-    <div class="act-row">
-      <button class="act" id="btnIndex" title="把已跟踪对话清单导出成 _index.json(对话名、消息数、更新时间)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h10" stroke-linecap="round"/></svg>
-        导出索引
-      </button>
-      <button class="act" id="btnLog" title="导出最近的运行日志(追踪/保存每一步),用于排查追踪不上的问题">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v16H4z" opacity="0"/><path d="M7 8h10M7 12h10M7 16h6" stroke-linecap="round"/><rect x="3" y="4" width="18" height="16" rx="2"/></svg>
-        导出日志
-      </button>
     </div>
-    <button class="act" id="btnViewer" title="打开仿 Claude 网页版的本地查看器,浏览已保存的对话">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 18v3M16 18v3M7 21h10" stroke-linecap="round"/></svg>
-      打开查看器
-    </button>
-
-    <div class="alltask" id="allTask" style="display:none"></div>
-  </div>
+  </details>
 
   <div class="foot">
     文件保存在浏览器下载目录的 <code>ClaudeArchive/</code> 下,每个对话一个子文件夹,内含 <code>conversation.md</code>、<code>conversation.json</code> 与 <code>files/</code>。<br>
-    点「打开本地查看器」可用仿 Claude 网页版的界面浏览存档。历史旧对话:打开它,等加载完成后点「保存当前对话」。
+    历史旧对话:打开它,等加载完成后点「保存当前对话」。
     <div class="foot-links">
       <button class="link-btn" id="btnStar" title="觉得好用?到 GitHub 给作者点个 Star ⭐">⭐ GitHub 点个 Star</button>
       <button class="link-btn" id="btnMail" title="一键给作者发邮件反馈问题或建议">✉️ 联系作者</button>

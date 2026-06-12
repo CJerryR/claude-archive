@@ -5,7 +5,7 @@
 **把 Claude.ai / 镜像站的对话完整、本地化地存下来 —— 含思考链、工具调用、上传与生成的文件,并用「仿 Claude 网页版」的本地查看器离线浏览。**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-d97757.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.9.1-d97757.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.10.0-d97757.svg)](CHANGELOG.md)
 [![Manifest V3](https://img.shields.io/badge/Chrome%2FEdge-MV3-4285F4.svg)](https://developer.chrome.com/docs/extensions/mv3/intro/)
 [![No Build](https://img.shields.io/badge/build-none-success.svg)](#)
 [![Local Only](https://img.shields.io/badge/privacy-100%25%20local-2ea44f.svg)](#隐私)

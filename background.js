@@ -71,8 +71,40 @@ async function ensureSettings() {
   const { settings } = await chrome.storage.local.get('settings');
   if (!settings) await chrome.storage.local.set({ settings: DEFAULT_SETTINGS });
 }
-chrome.runtime.onInstalled.addListener(() => { ensureSettings(); scanArchiveFolder().catch(() => {}); });
-chrome.runtime.onStartup.addListener(() => { ensureSettings(); scanArchiveFolder().catch(() => {}); });
+chrome.runtime.onInstalled.addListener(() => { ensureSettings(); scanArchiveFolder().catch(() => {}); syncDynamicScripts().catch(() => {}); });
+chrome.runtime.onStartup.addListener(() => { ensureSettings(); scanArchiveFolder().catch(() => {}); syncDynamicScripts().catch(() => {}); });
+
+// ---------------- 自定义中转站:动态注册内容脚本 ----------------
+// content_scripts 静态 matches 不能改;对用户添加的站点用 scripting.registerContentScripts 动态注册。
+// 仅注册"已获得权限"的站点,避免注册失败。
+async function syncDynamicScripts() {
+  if (!chrome.scripting || !chrome.scripting.registerContentScripts) return;
+  const sites = await getCustomSites();
+  // 先清掉我们注册过的动态脚本
+  try {
+    const existing = await chrome.scripting.getRegisteredContentScripts();
+    const ours = existing.filter(s => s.id && s.id.startsWith('cca-dyn-')).map(s => s.id);
+    if (ours.length) await chrome.scripting.unregisterContentScripts({ ids: ours });
+  } catch (e) {}
+  if (!sites.length) return;
+  // 只对已授权的站点注册
+  const granted = [];
+  for (const host of sites) {
+    const origin = `https://${host}/*`;
+    let has = false;
+    try { has = await chrome.permissions.contains({ origins: [origin] }); } catch (e) {}
+    if (has) granted.push(host);
+  }
+  if (!granted.length) return;
+  const matches = granted.map(hostToGlob);
+  try {
+    await chrome.scripting.registerContentScripts([
+      { id: 'cca-dyn-main', matches, js: ['interceptor.js'], runAt: 'document_start', world: 'MAIN', persistAcrossSessions: true },
+      { id: 'cca-dyn-iso', matches, js: ['bridge.js'], runAt: 'document_start', persistAcrossSessions: true }
+    ]);
+    logLine('scan', `已为 ${granted.length} 个自定义站点注册抓取脚本:${granted.join(', ')}`);
+  } catch (e) { logLine('write', '动态注册脚本失败:' + (e && e.message || e)); }
+}
 
 // ---------------- 统计 ----------------
 async function bumpStats(patch) {
@@ -372,10 +404,27 @@ async function saveB64(path, b64, mime = 'application/octet-stream', overwrite =
   return downloadDataUrl(url, path, overwrite);
 }
 
-// ---------------- 找一个 claude.ai 标签页(代理带凭证抓取) ----------------
-const CLAUDE_TAB_GLOBS = ['https://claude.ai/*', 'https://*.claude.ai/*', 'https://claude.hk.cn/*'];
+// ---------------- 站点匹配(内置 + 用户自定义中转站) ----------------
+const BUILTIN_GLOBS = ['https://claude.ai/*', 'https://*.claude.ai/*', 'https://claude.hk.cn/*'];
+// 规范化用户输入 → host(去协议/路径/端口)。返回 null 表示无效
+function normalizeHost(input) {
+  let s = String(input || '').trim();
+  if (!s) return null;
+  if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+  try { const u = new URL(s); return u.hostname || null; } catch (e) { return null; }
+}
+function hostToGlob(host) { return `https://${host}/*`; }
+async function getCustomSites() {
+  const { customSites } = await chrome.storage.local.get('customSites');
+  return Array.isArray(customSites) ? customSites : [];
+}
+async function allTabGlobs() {
+  const sites = await getCustomSites();
+  return BUILTIN_GLOBS.concat(sites.map(hostToGlob));
+}
 async function findTab() {
-  const tabs = await chrome.tabs.query({ url: CLAUDE_TAB_GLOBS });
+  const globs = await allTabGlobs();
+  const tabs = await chrome.tabs.query({ url: globs });
   const active = tabs.find(t => t.active) || tabs[0];
   return active?.id ?? null;
 }
@@ -790,6 +839,39 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // 手动触发本地文件夹扫描(从文件夹恢复跟踪索引)
   if (msg.kind === 'popup:scanFolder') {
     (async () => { sendResponse(await scanArchiveFolder(true)); })();
+    return true;
+  }
+
+  // —— 自定义中转站管理 ——
+  if (msg.kind === 'popup:listSites') {
+    (async () => { sendResponse({ ok: true, builtin: BUILTIN_GLOBS.map(g => g.replace('https://','').replace('/*','')), sites: await getCustomSites() }); })();
+    return true;
+  }
+  // 权限已在 popup 侧(有用户手势)申请通过后调用:保存并动态注册
+  if (msg.kind === 'popup:addSiteGranted') {
+    (async () => {
+      const host = normalizeHost(msg.host);
+      if (!host) return sendResponse({ ok: false, error: '域名无效' });
+      if (BUILTIN_GLOBS.some(g => g.includes(host))) return sendResponse({ ok: false, error: '该站点已内置支持' });
+      const sites = await getCustomSites();
+      if (!sites.includes(host)) sites.push(host);
+      await chrome.storage.local.set({ customSites: sites });
+      await syncDynamicScripts();
+      sendResponse({ ok: true, host, sites });
+    })();
+    return true;
+  }
+  if (msg.kind === 'popup:removeSite') {
+    (async () => {
+      const host = normalizeHost(msg.host) || String(msg.host || '');
+      let sites = await getCustomSites();
+      sites = sites.filter(h => h !== host);
+      await chrome.storage.local.set({ customSites: sites });
+      // 撤销该站点权限(忽略失败)
+      try { await chrome.permissions.remove({ origins: [`https://${host}/*`] }); } catch (e) {}
+      await syncDynamicScripts();
+      sendResponse({ ok: true, sites });
+    })();
     return true;
   }
 

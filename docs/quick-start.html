@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Archive · 快速开始</title>
+<style>
+  :root{ --bg:#faf9f5; --card:#fff; --ink:#2b2925; --ink2:#6b675f; --line:#e7e4db;
+    --accent:#c4623d; --accent-bg:#f6ece6; --ok:#2ea44f; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);line-height:1.65;padding:30px 16px 64px;
+    font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;}
+  .wrap{max-width:860px;margin:0 auto}
+  h1{font-size:28px;margin:0 0 4px;text-align:center}
+  .sub{text-align:center;color:var(--ink2);font-size:14.5px;margin-bottom:4px}
+  .privacy{text-align:center;color:var(--ok);font-size:13px;font-weight:600;margin-bottom:24px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:680px){ .grid{grid-template-columns:1fr} }
+  .step{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;position:relative}
+  .step .n{position:absolute;top:-13px;left:18px;width:30px;height:30px;border-radius:50%;
+    background:var(--accent);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:15px}
+  .step h3{margin:9px 0 6px;font-size:16.5px}
+  .step p{margin:0 0 5px;font-size:14px;color:var(--ink2)}
+  .step b{color:var(--ink)}
+  code{background:var(--accent-bg);color:var(--accent);padding:1.5px 7px;border-radius:6px;
+    font-family:"Cascadia Code",Consolas,monospace;font-size:.9em}
+  .full{grid-column:1/-1}
+  .banner{background:var(--accent-bg);border:1px solid #e9d3c7;border-radius:12px;padding:14px 18px;margin:20px 0;font-size:14px}
+  .banner b{color:var(--accent)}
+  .use{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-top:18px}
+  .use h2{margin:0 0 14px;font-size:19px}
+  ol.steps{counter-reset:s;list-style:none;padding-left:0;margin:0}
+  ol.steps>li{position:relative;padding:2px 0 12px 38px;font-size:14.5px}
+  ol.steps>li::before{counter-increment:s;content:counter(s);position:absolute;left:0;top:1px;
+    width:25px;height:25px;border-radius:50%;background:var(--accent);color:#fff;font-weight:700;
+    display:flex;align-items:center;justify-content:center;font-size:12.5px}
+  .kbd{display:inline-block;border:1px solid #bbb;border-bottom-width:2px;border-radius:5px;padding:0 7px;background:#fff;font-family:monospace;font-size:.88em}
+  .more{text-align:center;margin-top:26px;font-size:14px}
+  .more a{color:var(--accent);font-weight:600;text-decoration:none}
+  footer{margin-top:40px;text-align:center;color:#9a958c;font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Claude Archive · 快速开始</h1>
+  <div class="sub">把和 Claude 的聊天(含思考过程、工具调用、文件)自动存到你电脑,离线随时翻看</div>
+  <div class="privacy">🔒 全程本地 · 不上传任何数据</div>
+
+  <div class="grid">
+    <div class="step"><div class="n">1</div>
+      <h3>解压扩展</h3>
+      <p>解压得到 <code>claude-archive-extension</code> 文件夹。</p>
+      <p><b>别删别移这个文件夹</b> —— 扩展运行一直靠它。</p>
+    </div>
+    <div class="step"><div class="n">2</div>
+      <h3>打开扩展页</h3>
+      <p>地址栏输入 <code>chrome://extensions</code> 回车。</p>
+      <p>(Edge 用 <code>edge://extensions</code>)</p>
+    </div>
+    <div class="step"><div class="n">3</div>
+      <h3>开开发者模式</h3>
+      <p>打开页面<b>右上角</b>的「开发者模式」开关。</p>
+    </div>
+    <div class="step"><div class="n">4</div>
+      <h3>加载扩展</h3>
+      <p>点「<b>加载已解压的扩展程序</b>」,选中第 1 步那个文件夹。</p>
+      <p>建议把图标<b>固定</b>到工具栏。</p>
+    </div>
+  </div>
+
+  <div class="banner">
+    💡 安装后打开 <code>claude.ai</code> 进入任意对话,<b>正常聊天</b>即可后台自动存档。点扩展图标可看到「当前对话」状态。仅支持<b>电脑版 Chrome / Edge</b>。
+  </div>
+
+  <div class="use">
+    <h2>开始使用</h2>
+    <ol class="steps">
+      <li>在 Claude 里聊天 → 扩展自动捕获;想立刻存就点弹窗顶部 <b>「保存当前对话(全量)」</b>。</li>
+      <li>文件存到下载目录的 <code>ClaudeArchive/</code> 下,每个对话一个文件夹。</li>
+      <li>点 <b>「打开查看器」</b>(或双击扩展里的 <code>viewer.html</code>,需与 <code>viewer.js</code> 同目录),首次选一次 <code>ClaudeArchive</code> 文件夹,以后点 <span class="kbd">↻</span> 刷新即可。</li>
+      <li>用别的中转站?展开弹窗里「支持的网站 / 中转站」,填域名点添加、授权一次即可(可加多个,能同时在线保存)。</li>
+      <li>历史旧对话:打开它、等加载完,点「保存当前对话」补存。</li>
+    </ol>
+  </div>
+
+  <div class="more">
+    想了解全部功能、原理与常见问题 → <a href="TECHNICAL_GUIDE.html">查看完整技术文档</a>
+  </div>
+
+  <footer>本工具与 Anthropic 无官方关联 · 数据全程保存在你本机</footer>
+</div>
+</body>
+</html>

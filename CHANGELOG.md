@@ -33,6 +33,96 @@
 
 ---
 
+## [2.9.0] - 2026-06-12
+
+### ✨ 新增（Added）
+- 新增「直写模式」:在查看器里绑定 ClaudeArchive 文件夹后,所有文件经 File System Access API 直接写入磁盘,**完全不经过浏览器下载,零下载记录**。
+- 新增「文件夹即跟踪」:启动时扫描绑定文件夹内各对话目录的 `conversation.json`,自动重建跟踪索引——只要文件夹还在,重装扩展/更换浏览器配置后无需逐个点开对话。弹窗提供「恢复索引」按钮手动触发。
+- 新增「抓取限速」设置(不限 / 1 / 5 / 20 MB/s):按平均速率为文件抓取配速,控制带宽与磁盘占用。
+- 直写模式下若版本表丢失(如重装扩展),归档时自动读取磁盘文件重建内容哈希表,恢复「同内容跳过」能力。
+- 弹窗与查看器新增「⭐ GitHub Star」快捷入口(github.com/CJerryR/claude-archive)与「✉️ 联系作者」一键发邮件。
+
+### 🔧 改进（Changed）
+- 保存通道统一:优先直写绑定文件夹,未绑定或权限失效时自动退回浏览器下载(静默)。
+- 仓库内全部占位链接替换为真实仓库地址。
+
+### ⚠️ 已知限制
+- 浏览器重启后,直写文件夹的授权可能需在绑定页重新确认一次(浏览器安全策略);失效期间自动退回下载模式,不丢数据。
+
+---
+
+## [2.12.0] - 2026-06-12
+
+### 🐛 修复（Fixed）
+- **修复切换镜像站后弹窗仍显示前一个站点对话**:弹窗「当前对话」与「保存当前对话」改用 `findActiveTab()`,精确取你当前聚焦窗口里激活的那个标签页,跨站点切换即刻跟随;不同站点的标签页各自独立捕获,可**同时在线保存**。「当前对话」并显示所在站点域名。
+
+### 🔧 改进（Changed）
+- 弹窗「支持的网站 / 中转站」区**默认展开**,添加/切换中转站的入口一眼可见(此前折叠易被忽略)。
+- 在非对话页打开弹窗时,「当前对话」给出明确提示(当前页面不是对话页)。
+
+### ✨ 新增（Added）
+- **独立整理脚本 `tools/organize_archive.py`**(无需 Claude Code):Python 运行,按 SHA-256 去重并把产出文件重命名为 `<消息uuid前8>__<原名>`,统一并入 `files/<对话码>/`;默认 dry-run 预览,`--apply` 执行,一切“删除”移入 `_trash/`,不动正本/history;生成 `cleanup-report.csv`。
+- **可发布的技术文档与快速开始页**:`guides/TECHNICAL_GUIDE.html`(完整功能/原理/FAQ)、`guides/quick-start.html`(一页式上手),均为自包含 HTML,可直接发布到网上。
+
+---
+
+## [2.11.0] - 2026-06-12
+
+### ✨ 新增（Added）
+- **产出文件按"消息版本"精确绑定**:同一对话里不同消息产生的同名文件(如先后两条消息各生成 `report.txt`,内容不同)现以 `<消息uuid前8>__<原名>` 命名落盘(如 `a1b2c3d4__report.txt`、`e5f6a7b8__report.txt`)。在查看器里点击某条消息后的文件,会**精确下载该消息对应的那个版本**,不再串到其它版本。
+- 查看器 `resolveAsset()` 新增**消息 uuid8 前缀优先匹配**:渲染每条消息的文件时,先用该消息 uuid8 命中其专属版本,找不到再回退到精确文件名 / stem 匹配(完全兼容无前缀的老存档)。
+
+### 🔧 改进（Changed）
+- 取代旧的 `__vN` 顺序版本方案:`<msg8>__` 是文件与消息的**确定性绑定**,在多分支、补抓、乱序场景下也不会认错版本(`__vN` 仅在"同一条消息内同名文件多次变更"这种罕见情况下作兜底)。
+- 配套整理手册(`tools/ORGANIZING_GUIDE.md`)升级到 v3:指导从 `conversation.json` 反推文件归属消息,把历史文件重命名为 `<msg8>__<原名>`。
+
+> 说明:盘上已有的旧存档不受影响(查看器回退匹配照常打开);如需让旧文件也获得精确版本定位,用 v3 整理手册重新整理一次即可。
+
+---
+
+## [2.10.0] - 2026-06-12
+
+### ✨ 新增（Added）
+- **支持自定义中转站 / 镜像站**：弹窗新增「支持的网站 / 中转站」区,可添加任意中转站域名(如 `cloudlian.cn`)。添加时会请求一次该网站的访问权限,授权后通过动态注册内容脚本立即在该站点启用抓取,**无需重装扩展**;可随时移除并撤销权限。内置 `claude.ai`、`claude.hk.cn` 开箱即用。
+
+### 🔧 改进（Changed）
+- **重排弹窗布局**:常用操作(保存当前对话、全部下载、检查完整性、打开查看器、导出索引/日志)统一**置顶**,不必再滚到底部;「文件下载进度」「支持的网站」「捕获选项」改为可折叠分组,界面更清爽。
+
+---
+
+## [2.9.1] - 2026-06-12
+
+### 🐛 修复（Fixed）
+- **修复重复文件爆炸的根因**：同一对话的多次归档此前可并发执行并竞态读取版本表，导致相同资产被重复下载成 `名字 (1)(2)(3)…`。现归档按对话**严格串行**（互斥锁 + 请求合并），并发触发只执行一次、排队合并一次。已用真实后台代码做三路并发回归测试：每个资产仅下载一次，二次归档 0 重复（SHA-256 判重正常，哈希本身无问题）。
+- **修复对话根目录被正本副本刷屏**：v2.8 误将所有下载设为 `uniquify`，致使 `conversation.json/md` 每次保存生成 `conversation (1).md…`。现正本（conversation.json/md、history 快照、_index、_runlog）恢复**覆盖自身**，资产仍由内容指纹命名、`uniquify` 仅作兜底。
+- **修复扩展内查看器整页按钮失灵**：MV3 扩展页 CSP 禁止内联脚本，而查看器脚本此前全部内联。现拆分为 `viewer.html + viewer.js`，在 `chrome-extension://` 页面完整可用（绑定、选择文件夹、搜索等全部恢复）。KaTeX 经 CDN 加载在扩展页受 CSP 限制时公式自动回退为原文，本地双击打开不受影响。
+
+### ✨ 新增（Added）
+- 查看器「选择存档文件夹」升级：选择器默认从「下载」目录打开；**选一次即记住**（句柄持久化），下次点击直接复用、最多确认一次授权，不再反复弹选择窗口；扩展环境内选择即自动绑定直写并重建索引。
+- 侧栏新增「↻ 刷新」按钮：一键重读已绑定/上次选择的存档文件夹。
+- 扩展环境打开查看器时自动载入已绑定存档（已授权则无感）。
+- 调试日志新增判重统计（"判重跳过 N 个已存文件"）与哈希计算失败告警，完成日志改为"新 N 个文件"。
+
+---
+
+## [2.9.0] - 2026-06-12
+
+### ✨ 新增（Added）
+- 新增「直写磁盘」模式：在查看器里绑定 ClaudeArchive 文件夹后，所有归档直接写入磁盘，**零浏览器下载记录、零下载栏弹出**；未绑定或授权失效时自动退回原下载方式。
+- 新增「文件夹即跟踪」：启动时扫描已绑定文件夹里每个对话的 `conversation.json` 自动重建索引——文件夹还在就无需逐个点开重新追踪，重装扩展也不丢。
+- 新增抓取限速：设置里可选最大下载速度（不限 / 20 / 5 / 1 MB/s），按平均速率配速，控制资源占用。
+- 查看器新增「全局搜索」：可选范围（用户 / AI 回答 / 思考 / 工具·产物）、当前或全部对话、起止日期；命中关键词赤陶色高亮列出，点击跳转到对应消息（自动切分支、闪烁定位），底部「返回搜索结果」可回列表继续点击其他结果。
+- 弹窗页脚新增「⭐ GitHub 点个 Star」与「✉️ 联系作者」一键入口。
+
+### 🔧 改进（Changed）
+- **像素级复刻官方思考链 UI**：折叠标题为纯文字+箭头；展开后为带连接线的时间线——思考正文（时钟图标）直接平铺显示，编辑步骤显示文件名徽章与 `+增 -删` 行数，脚本步骤显示 `Script` 徽章，步骤图标按工具类型区分（文件/铅笔/终端/搜索/图像）。
+- 长思考自动渐隐折叠，「显示更多 / 收起」切换。
+
+### 🐛 修复（Fixed）
+- 修复思考链中"工具调用前的思考不显示"的问题（此前思考正文被藏进二级折叠，现平铺直出）。
+
+---
+
 ## [2.8.0] - 2026-06-12
 
 ### 🔧 改进（Changed）
@@ -279,24 +369,25 @@
 标注 _(开发期)_ 的版本为 1.0.0–1.8.0，于项目早期密集迭代完成，日期为对应开发阶段的近似值；
 1.9.0 起的版本日期可精确对应。所有版本的功能演进均如实记录。
 
-[Unreleased]: https://example.com/your-repo/compare/v2.8.0...HEAD
-[2.8.0]: https://example.com/your-repo/releases/tag/v2.8.0
-[2.7.1]: https://example.com/your-repo/releases/tag/v2.7.1
-[2.7.0]: https://example.com/your-repo/releases/tag/v2.7.0
-[2.6.0]: https://example.com/your-repo/releases/tag/v2.6.0
-[2.5.0]: https://example.com/your-repo/releases/tag/v2.5.0
-[2.4.0]: https://example.com/your-repo/releases/tag/v2.4.0
-[2.3.0]: https://example.com/your-repo/releases/tag/v2.3.0
-[2.2.0]: https://example.com/your-repo/releases/tag/v2.2.0
-[2.1.0]: https://example.com/your-repo/releases/tag/v2.1.0
-[2.0.0]: https://example.com/your-repo/releases/tag/v2.0.0
-[1.9.0]: https://example.com/your-repo/releases/tag/v1.9.0
-[1.8.0]: https://example.com/your-repo/releases/tag/v1.8.0
-[1.7.0]: https://example.com/your-repo/releases/tag/v1.7.0
-[1.6.0]: https://example.com/your-repo/releases/tag/v1.6.0
-[1.5.0]: https://example.com/your-repo/releases/tag/v1.5.0
-[1.4.0]: https://example.com/your-repo/releases/tag/v1.4.0
-[1.3.0]: https://example.com/your-repo/releases/tag/v1.3.0
-[1.2.0]: https://example.com/your-repo/releases/tag/v1.2.0
-[1.1.0]: https://example.com/your-repo/releases/tag/v1.1.0
-[1.0.0]: https://example.com/your-repo/releases/tag/v1.0.0
+[Unreleased]: https://github.com/CJerryR/claude-archive/compare/v2.12.0...HEAD
+[2.9.0]: https://github.com/CJerryR/claude-archive/releases/tag/v2.9.0
+[2.8.0]: https://github.com/CJerryR/claude-archive/releases/tag/v2.8.0
+[2.7.1]: https://github.com/CJerryR/claude-archive/releases/tag/v2.7.1
+[2.7.0]: https://github.com/CJerryR/claude-archive/releases/tag/v2.7.0
+[2.6.0]: https://github.com/CJerryR/claude-archive/releases/tag/v2.6.0
+[2.5.0]: https://github.com/CJerryR/claude-archive/releases/tag/v2.5.0
+[2.4.0]: https://github.com/CJerryR/claude-archive/releases/tag/v2.4.0
+[2.3.0]: https://github.com/CJerryR/claude-archive/releases/tag/v2.3.0
+[2.2.0]: https://github.com/CJerryR/claude-archive/releases/tag/v2.2.0
+[2.1.0]: https://github.com/CJerryR/claude-archive/releases/tag/v2.1.0
+[2.0.0]: https://github.com/CJerryR/claude-archive/releases/tag/v2.0.0
+[1.9.0]: https://github.com/CJerryR/claude-archive/releases/tag/v1.9.0
+[1.8.0]: https://github.com/CJerryR/claude-archive/releases/tag/v1.8.0
+[1.7.0]: https://github.com/CJerryR/claude-archive/releases/tag/v1.7.0
+[1.6.0]: https://github.com/CJerryR/claude-archive/releases/tag/v1.6.0
+[1.5.0]: https://github.com/CJerryR/claude-archive/releases/tag/v1.5.0
+[1.4.0]: https://github.com/CJerryR/claude-archive/releases/tag/v1.4.0
+[1.3.0]: https://github.com/CJerryR/claude-archive/releases/tag/v1.3.0
+[1.2.0]: https://github.com/CJerryR/claude-archive/releases/tag/v1.2.0
+[1.1.0]: https://github.com/CJerryR/claude-archive/releases/tag/v1.1.0
+[1.0.0]: https://github.com/CJerryR/claude-archive/releases/tag/v1.0.0

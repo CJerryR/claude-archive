@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Archive · 技术文档与使用手册</title>
+<style>
+  :root{ --bg:#faf9f5; --card:#fff; --ink:#2b2925; --ink2:#6b675f; --faint:#9a958c; --line:#e7e4db;
+    --accent:#c4623d; --accent-bg:#f6ece6; --code-bg:#f3efe8; --ok:#2ea44f; --warn:#b8860b; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);line-height:1.72;
+    font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;}
+  .wrap{max-width:880px;margin:0 auto;padding:36px 20px 80px}
+  header{text-align:center;margin-bottom:30px}
+  header h1{font-size:30px;margin:0 0 6px}
+  header .sub{color:var(--ink2);font-size:15px}
+  header .badges{margin-top:12px;font-size:12.5px;color:var(--faint)}
+  header .badges span{display:inline-block;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:3px 11px;margin:3px}
+  .toc{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 22px;margin-bottom:30px}
+  .toc h2{font-size:15px;margin:0 0 10px;color:var(--ink2);font-weight:600}
+  .toc ol{margin:0;padding-left:22px;columns:2;font-size:14px}
+  @media(max-width:640px){ .toc ol{columns:1} }
+  .toc a{color:var(--accent);text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  h2.sec{font-size:22px;margin:38px 0 14px;padding-top:10px;border-top:1px solid var(--line)}
+  h3{font-size:17px;margin:22px 0 8px}
+  p,li{font-size:15px}
+  code{background:var(--accent-bg);color:var(--accent);padding:1.5px 7px;border-radius:6px;
+    font-family:"Cascadia Code",Consolas,Menlo,monospace;font-size:.9em}
+  pre{background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow:auto}
+  pre code{background:none;color:var(--ink);padding:0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 22px;margin:16px 0}
+  .note{border-left:3px solid var(--accent);background:var(--accent-bg);border-radius:0 10px 10px 0;padding:12px 16px;margin:16px 0;font-size:14.5px}
+  .note.ok{border-color:var(--ok);background:#eef7f0}
+  .note.warn{border-color:var(--warn);background:#fbf5e6}
+  .note b{color:var(--accent)}
+  .note.ok b{color:var(--ok)} .note.warn b{color:var(--warn)}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:var(--code-bg);font-weight:600}
+  .kbd{display:inline-block;border:1px solid #bbb;border-bottom-width:2px;border-radius:5px;padding:0 7px;background:#fff;font-family:monospace;font-size:.88em}
+  ol.steps{counter-reset:s;list-style:none;padding-left:0}
+  ol.steps>li{position:relative;padding:4px 0 14px 40px;margin:0}
+  ol.steps>li::before{counter-increment:s;content:counter(s);position:absolute;left:0;top:2px;
+    width:26px;height:26px;border-radius:50%;background:var(--accent);color:#fff;font-weight:700;
+    display:flex;align-items:center;justify-content:center;font-size:13px}
+  footer{margin-top:50px;padding-top:20px;border-top:1px solid var(--line);text-align:center;color:var(--faint);font-size:13px}
+  footer a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Claude Archive</h1>
+  <div class="sub">完整聊天记录本地存档工具 · 技术文档与使用手册</div>
+  <div class="badges"><span>Chrome / Edge 扩展(MV3)</span><span>全程本地 · 不上传</span><span>含离线查看器</span><span>支持自定义中转站</span></div>
+</header>
+
+<div class="toc">
+  <h2>目录</h2>
+  <ol>
+    <li><a href="#intro">这是什么</a></li>
+    <li><a href="#install">安装</a></li>
+    <li><a href="#first">第一次使用</a></li>
+    <li><a href="#viewer">本地查看器</a></li>
+    <li><a href="#sites">多站点 / 中转站</a></li>
+    <li><a href="#direct">直写模式与跟踪</a></li>
+    <li><a href="#options">捕获选项详解</a></li>
+    <li><a href="#files">文件如何组织</a></li>
+    <li><a href="#versions">同名文件的版本</a></li>
+    <li><a href="#organize">整理与查重</a></li>
+    <li><a href="#privacy">隐私与安全</a></li>
+    <li><a href="#faq">常见问题</a></li>
+  </ol>
+</div>
+
+<h2 class="sec" id="intro">1. 这是什么</h2>
+<p>Claude Archive 是一个浏览器扩展,在你与 Claude 对话时<b>实时把完整记录保存到你自己的电脑</b>,包括:对话正文、Claude 的思考过程(thinking)、工具调用链、你上传的文件、Claude 生成的文件。它还内置一个<b>仿 Claude 网页版的离线查看器</b>,让你随时翻看已存档的对话。</p>
+<div class="note ok"><b>全程本地</b>:所有数据只写到你电脑的下载目录,不经过任何服务器,扩展也不联网上传。</div>
+<p>支持 <code>claude.ai</code> 与镜像/中转站(如 <code>claude.hk.cn</code>),也可自行添加其它中转站域名。</p>
+
+<h2 class="sec" id="install">2. 安装</h2>
+<div class="note warn">仅支持<b>桌面版 Chrome / Edge</b>(基于 Chromium 的浏览器)。手机版浏览器不支持扩展。</div>
+<ol class="steps">
+  <li>下载并解压扩展文件夹(<code>claude-archive-extension</code>)。<b>解压后不要删除或移动这个文件夹</b>,扩展运行时一直依赖它。</li>
+  <li>打开扩展管理页:地址栏输入 <code>chrome://extensions</code>(Edge 为 <code>edge://extensions</code>)回车。</li>
+  <li>打开右上角的 <b>开发者模式</b> 开关。</li>
+  <li>点 <b>「加载已解压的扩展程序」</b>,选中刚才解压出的 <code>claude-archive-extension</code> 文件夹。</li>
+  <li>扩展出现在列表里即安装成功。建议点扩展栏的拼图图标,把 Claude Archive <b>固定</b>到工具栏。</li>
+</ol>
+
+<h2 class="sec" id="first">3. 第一次使用</h2>
+<ol class="steps">
+  <li>打开 <code>claude.ai</code>(或你的中转站),进入任意一个对话。</li>
+  <li>正常聊天即可。扩展会在后台自动捕获;点扩展图标可看到「当前对话」状态变为<b>已捕获 / 完整</b>。</li>
+  <li>想立刻存档,点弹窗顶部 <b>「保存当前对话(全量)」</b>。文件会保存到下载目录的 <code>ClaudeArchive/</code> 下。</li>
+  <li>历史旧对话:打开它、等页面加载完,再点「保存当前对话」即可补存。</li>
+</ol>
+<div class="note">弹窗顶部就是常用操作:保存当前对话、全部下载、检查完整性、打开查看器、导出索引/日志。设置项在下方可折叠区域里。</div>
+
+<h2 class="sec" id="viewer">4. 本地查看器</h2>
+<p>点弹窗里的 <b>「打开查看器」</b>,或直接双击扩展文件夹里的 <code>viewer.html</code>。</p>
+<div class="note warn"><code>viewer.html</code> 和 <code>viewer.js</code> 必须放在<b>同一个文件夹</b>里,否则查看器打不开。</div>
+<p>查看器提供:仿官网的对话浏览(含思考链时间线、工具调用、文件)、左侧对话列表、分支切换、代码高亮、图片灯箱,以及<b>全局搜索</b>——可按「用户 / AI 回答 / 思考 / 工具·产物」范围、指定对话、时间段搜索关键词,命中高亮、点击跳转、可返回结果继续点。</p>
+<p>首次使用点 <b>「选择存档文件夹」</b>,选中你的 <code>ClaudeArchive</code> 文件夹即可载入全部对话。<b>选一次会被记住</b>,之后点侧栏 <span class="kbd">↻</span> 刷新即可,不必每次重选。</p>
+
+<h2 class="sec" id="sites">5. 多站点 / 中转站</h2>
+<p>内置支持 <code>claude.ai</code> 和 <code>claude.hk.cn</code>,开箱即用。如果你用过其它中转站(如 <code>cloudlian.cn</code>):</p>
+<ol class="steps">
+  <li>点扩展图标,展开 <b>「支持的网站 / 中转站」</b>。</li>
+  <li>在输入框填入域名(<code>cloudlian.cn</code> 或带 <code>https://</code> 都行),点 <b>添加</b>。</li>
+  <li>浏览器会弹出一次<b>该网站的访问权限请求</b>,点允许。之后在该站点刷新页面,扩展即开始自动存档。</li>
+</ol>
+<div class="note ok"><b>可以同时在线保存多个站点</b>:不同标签页各自独立捕获,A 站和 B 站的对话互不干扰。弹窗里的「当前对话」显示的是<b>你正看着的那个标签页</b>的对话(带站点名)。</div>
+<div class="note">权限是逐站点授予的,只对你明确添加的网站生效;没添加的网站扩展不会读取。随时可在列表里点 ✕ 移除并撤销权限。</div>
+
+<h2 class="sec" id="direct">6. 直写模式与「文件夹即跟踪」</h2>
+<p>默认情况下文件通过浏览器下载保存。你也可以开启<b>直写模式</b>:在查看器里绑定一次 <code>ClaudeArchive</code> 文件夹,之后所有文件<b>直接写入该文件夹,零下载记录、不在下载栏刷屏</b>。</p>
+<p>绑定文件夹后还获得<b>「文件夹即跟踪」</b>:扩展启动时扫描文件夹里每个对话的 <code>conversation.json</code> 自动重建索引——只要文件夹还在,就不必逐个重新打开对话来恢复跟踪,重装扩展也不丢。</p>
+<div class="note warn">浏览器重启后可能要求<b>重新确认一次</b>文件夹权限(这是浏览器安全策略)。失效时扩展自动退回下载模式,点弹窗里的「绑定文件夹 / 恢复索引」即可恢复。</div>
+
+<h2 class="sec" id="options">7. 捕获选项详解</h2>
+<table>
+  <tr><th>选项</th><th>作用</th></tr>
+  <tr><td>实时存档(总开关)</td><td>关闭后扩展不再捕获任何对话。</td></tr>
+  <tr><td>自动写盘</td><td>捕获后自动保存到下载目录;关闭则只捕获、需手动点保存。</td></tr>
+  <tr><td>保存文件</td><td>下载你上传的与 Claude 生成的文件(图片、文档、压缩包等)。</td></tr>
+  <tr><td>全量补全抓取</td><td>回复结束后再抓一次,确保思考链 / 工具调用完整。</td></tr>
+  <tr><td>保留历史快照</td><td>每次抓取另存一份带时间戳的 JSON 到 <code>history/</code>,便于查看器多版本合并。</td></tr>
+  <tr><td>静默下载</td><td>退回下载模式时,下载完成后从浏览器下载记录移除(文件保留)。直写模式天然无记录。</td></tr>
+  <tr><td>抓取限速</td><td>控制文件抓取的平均速率(不限 / 20 / 5 / 1 MB/s),降低带宽与磁盘占用。</td></tr>
+  <tr><td>调试日志</td><td>在 Service Worker 控制台打印「捕获→保存」每一步,用于排查问题。</td></tr>
+</table>
+
+<h2 class="sec" id="files">8. 文件如何组织</h2>
+<p>所有内容保存在下载目录的 <code>ClaudeArchive/</code> 下,每个对话一个子文件夹:</p>
+<pre><code>ClaudeArchive/
+  _index.json                         全局对话索引
+  &lt;对话名&gt;__&lt;对话uuid前8&gt;/
+    conversation.json                 结构化全量数据(查看器读它)
+    conversation.md                   Markdown 版,可直接阅读
+    history/                          历次抓取的带时间戳快照
+    files/&lt;对话uuid前8&gt;/                该对话的所有图片 / 文档 / 产物
+</code></pre>
+<div class="note">图片只能拿到 Claude 服务器提供的 <code>.webp</code> 预览,<b>原始 PNG 无法获取</b>,这是服务器限制,非扩展所能改变。</div>
+
+<h2 class="sec" id="versions">9. 同名文件的版本(重要)</h2>
+<p>同一个对话里,不同消息可能产出<b>同名但内容不同</b>的文件(例如先后两条消息各生成一个 <code>report.txt</code>)。扩展用<b>产生该文件的消息 uuid 前 8 位作前缀</b>来区分它们:</p>
+<pre><code>files/&lt;对话码&gt;/a1b2c3d4__report.txt     ← 12:00 那条消息产出的版本
+files/&lt;对话码&gt;/e5f6a7b8__report.txt     ← 13:00 那条消息产出的版本</code></pre>
+<p>在查看器里点击某条消息后面的文件,会<b>精确下载到该消息对应的那个版本</b>,不会串到别的版本。文件名在界面上仍显示为干净的原名(如 <code>report.txt</code>)。</p>
+
+<h2 class="sec" id="organize">10. 整理与查重</h2>
+<p>用过多个历史版本后,下载目录里可能积累重复文件或零散布局。提供两种清理方式:</p>
+<h3>方式一:查重报告(只读)</h3>
+<p>浏览器打开 <code>tools/cleanup-report.html</code>,选中 <code>ClaudeArchive</code> 文件夹,即可按对话 + 版本归类、用 SHA-256 标出内容重复的文件,并导出 JSON/CSV 清单。<b>它不修改任何文件</b>,只看不动。</p>
+<h3>方式二:一键整理脚本</h3>
+<p>运行 <code>tools/organize_archive.py</code>(需 Python 3.8+),自动按内容去重、把文件统一并入 <code>files/&lt;对话码&gt;/</code> 并加上消息前缀:</p>
+<pre><code># 预览(只打印计划,不动文件)
+python organize_archive.py "C:\Users\你\Downloads\ClaudeArchive"
+
+# 确认无误后执行
+python organize_archive.py "C:\Users\你\Downloads\ClaudeArchive" --apply</code></pre>
+<div class="note warn"><b>执行前请整目录备份一次。</b> 去重 / 垃圾文件都移入 <code>ClaudeArchive/_trash/</code>(不直接删),你确认后再手动删除。运行后生成 <code>cleanup-report.csv</code> 记录每个文件去向。</div>
+
+<h2 class="sec" id="privacy">11. 隐私与安全</h2>
+<ul>
+  <li><b>数据不出本机</b>:扩展只把数据写到你的下载目录,不向任何服务器发送。</li>
+  <li><b>权限最小化</b>:内置只匹配 Claude 官方与已知镜像;其它中转站需你逐个手动添加并授权,没添加的网站扩展碰不到。</li>
+  <li><b>开源可审计</b>:全部源码公开,可自行检查行为。</li>
+</ul>
+
+<h2 class="sec" id="faq">12. 常见问题</h2>
+<h3>切换到另一个中转站后,弹窗还显示前一个对话?</h3>
+<p>弹窗「当前对话」显示的是你<b>当前激活标签页</b>的对话。确保你点的是目标站点的标签页;若该站点是新加的中转站,需先在「支持的网站」里添加并授权、刷新页面。两个站点可同时在线、各自独立保存。</p>
+<h3>能同时保存多个网站吗?</h3>
+<p>能。每个标签页独立捕获,互不影响。</p>
+<h3>查看器点了没反应 / 按钮没用?</h3>
+<p>确认 <code>viewer.html</code> 和 <code>viewer.js</code> 在同一文件夹。若是在扩展页内打开,KaTeX 公式可能因安全策略回退为纯文本(本地双击打开不受影响),其余功能正常。</p>
+<h3>下载目录里有很多带 <code>(1)</code><code>(2)</code> 的重复文件?</h3>
+<p>那是旧版本遗留。新版已修复不再产生;旧的用上面的查重报告或整理脚本清理即可。</p>
+<h3>找不到图片的原图(PNG)?</h3>
+<p>Claude 服务器只提供 webp 预览,原始 PNG 无法获取,只能保存为 <code>.webp</code>。</p>
+<h3>历史旧对话没被存下来?</h3>
+<p>打开那个对话、等页面加载完成,点「保存当前对话」即可。也可用「全部下载」遍历所有已跟踪对话补存。</p>
+
+<footer>
+  Claude Archive · 本工具与 Anthropic 无官方关联 · 数据全程保存在你本机<br>
+  反馈与源码见项目仓库。
+</footer>
+</div>
+</body>
+</html>

@@ -43,10 +43,11 @@ function paintState(r) {
       pill.className = 'pill idle';
       pill.textContent = '等待';
     }
-    $('curName').textContent = cur.name || '当前对话';
-    $('curMeta').textContent = cur.captured
+    $('curName').textContent = cur.name || (cur.convId ? '当前对话' : '当前页面不是对话页');
+    const hostTag = cur.host ? `[${cur.host}] ` : '';
+    $('curMeta').textContent = hostTag + (cur.captured
       ? (cur.full ? '思考链与工具调用已就绪' : '基础内容已捕获,发消息或点保存可补全')
-      : '在此对话发一条消息即可开始捕获';
+      : (cur.convId ? '在此对话发一条消息即可开始捕获' : '打开一个对话页即可'));
   } else {
     box.style.display = 'none';
   }
@@ -91,11 +92,82 @@ function stopAllTaskPoll() { if (_allTaskTimer) { clearInterval(_allTaskTimer); 
 async function refresh() {
   try {
     const r = await send({ kind: 'popup:getState' });
-    if (r && r.ok) { paintSettings(r.settings); paintState(r); }
+    if (r && r.ok) { paintSettings(r.settings); paintState(r); paintBind(r.direct); paintSpeed(r.settings); }
     await paintProgress();
+    await paintSites();
   } catch (e) {
     toast('err', '无法连接后台,请重载扩展');
   }
+}
+
+// 直写模式绑定状态
+function paintBind(d) {
+  const bar = $('bindBar'), txt = $('bindTxt'), bBind = $('btnBind'), bScan = $('btnRescan');
+  if (!bar) return;
+  bar.classList.remove('ok', 'warn');
+  const st = d && d.status;
+  if (st === 'granted') {
+    bar.classList.add('ok');
+    txt.textContent = `直写模式:已绑定「${d.name || 'ClaudeArchive'}」· 零下载记录 · 文件夹即跟踪`;
+    bBind.style.display = 'none'; bScan.style.display = '';
+  } else if (st === 'need-reauth') {
+    bar.classList.add('warn');
+    txt.textContent = '直写模式:需重新授权(浏览器重启后需确认一次)';
+    bBind.style.display = ''; bBind.textContent = '重新授权'; bScan.style.display = 'none';
+  } else {
+    txt.textContent = '直写模式:未绑定(当前用下载方式保存)';
+    bBind.style.display = ''; bBind.textContent = '绑定文件夹'; bScan.style.display = 'none';
+  }
+}
+function paintSpeed(s) {
+  const sel = $('maxSpeed'); if (!sel) return;
+  sel.value = String(Number(s && s.maxSpeedMBps || 0));
+}
+
+// 中转站列表渲染
+async function paintSites() {
+  const box = $('siteList'); if (!box) return;
+  let r; try { r = await send({ kind: 'popup:listSites' }); } catch (e) { return; }
+  if (!r || !r.ok) return;
+  box.innerHTML = '';
+  for (const h of (r.builtin || [])) {
+    const row = document.createElement('div'); row.className = 'site-row';
+    row.innerHTML = `<span class="host">${h}</span><span class="tag builtin">内置</span>`;
+    box.appendChild(row);
+  }
+  if (!(r.sites || []).length) {
+    const e = document.createElement('div'); e.className = 'site-empty'; e.textContent = '还没有添加自定义中转站。';
+    box.appendChild(e);
+  }
+  for (const h of (r.sites || [])) {
+    const row = document.createElement('div'); row.className = 'site-row';
+    row.innerHTML = `<span class="host">${h}</span><span class="tag">自定义</span><button class="rm" title="移除并撤销权限">✕</button>`;
+    row.querySelector('.rm').addEventListener('click', async () => {
+      const rr = await send({ kind: 'popup:removeSite', host: h });
+      if (rr && rr.ok) { toast('ok', `已移除 ${h}`); paintSites(); }
+    });
+    box.appendChild(row);
+  }
+}
+// 规范化输入 → host
+function hostFromInput(v) {
+  let s = String(v || '').trim(); if (!s) return null;
+  if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+  try { return new URL(s).hostname || null; } catch (e) { return null; }
+}
+async function addSite() {
+  const inp = $('siteInput'); if (!inp) return;
+  const host = hostFromInput(inp.value);
+  if (!host) { toast('err', '请输入有效域名,如 cloudlian.cn'); return; }
+  const origin = `https://${host}/*`;
+  let granted = false;
+  // 权限请求必须在用户手势内直接调用
+  try { granted = await chrome.permissions.request({ origins: [origin] }); }
+  catch (e) { toast('err', '权限请求失败:' + (e && e.message || e)); return; }
+  if (!granted) { toast('err', '未授予该网站权限,无法添加'); return; }
+  const r = await send({ kind: 'popup:addSiteGranted', host });
+  if (r && r.ok) { inp.value = ''; toast('ok', `已添加 ${r.host},在该站点刷新即可自动存档`); paintSites(); }
+  else toast('err', r?.error || '添加失败');
 }
 
 // 绑定开关
@@ -112,6 +184,34 @@ for (const k of TOGGLES) {
 
 document.addEventListener('DOMContentLoaded', () => {
   try { $('ver').textContent = 'v' + chrome.runtime.getManifest().version; } catch {}
+
+  // 绑定/重新授权:打开查看器的绑定引导页(弹窗里直接选目录会因失焦关闭而中断)
+  $('btnBind') && $('btnBind').addEventListener('click', () => {
+    try { chrome.tabs.create({ url: chrome.runtime.getURL('viewer.html') + '#bind' }); window.close(); } catch {}
+  });
+  // 从已绑定文件夹重新扫描,恢复跟踪索引
+  $('btnRescan') && $('btnRescan').addEventListener('click', async () => {
+    toast('run', '正在扫描绑定文件夹…');
+    const r = await send({ kind: 'popup:scanFolder' });
+    if (r && r.ok) { toast('ok', `扫描完成:发现 ${r.found || 0} 个对话存档(新增 ${r.added || 0})`); refresh(); }
+    else toast('err', r?.error === 'need-reauth' ? '需先重新授权文件夹' : (r?.error || '扫描失败'));
+  });
+  // 抓取限速
+  $('maxSpeed') && $('maxSpeed').addEventListener('change', async (e) => {
+    const r = await send({ kind: 'popup:setSettings', patch: { maxSpeedMBps: Number(e.target.value) || 0 } });
+    if (r && r.ok) toast('ok', Number(e.target.value) ? `限速 ${e.target.value} MB/s` : '已取消限速');
+  });
+  // GitHub Star / 联系作者
+  $('btnStar') && $('btnStar').addEventListener('click', () => {
+    try { chrome.tabs.create({ url: 'https://github.com/CJerryR/claude-archive' }); } catch {}
+  });
+  $('btnMail') && $('btnMail').addEventListener('click', () => {
+    try { chrome.tabs.create({ url: 'mailto:2513100@mail.nankai.edu.cn?subject=' + encodeURIComponent('Claude Archive 反馈') }); } catch {}
+  });
+
+  // 添加中转站
+  $('btnAddSite') && $('btnAddSite').addEventListener('click', addSite);
+  $('siteInput') && $('siteInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') addSite(); });
 
   $('btnSaveCurrent').addEventListener('click', async () => {
     toast('run', '正在抓取当前对话…');

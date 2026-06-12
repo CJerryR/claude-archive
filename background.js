@@ -1,7 +1,7 @@
 // background.js — service worker(module)
 // 状态机:接收捕获 → 合并会话状态 → 触发全参数补全抓取 → 防抖写盘(MD/JSON/资源)。
 import {
-  buildMarkdown, buildJson, dirFor, collectAssets, pickFileName, activePath, safeName, assignFileNames, filesDirFor, convHash
+  buildMarkdown, buildJson, dirFor, collectAssets, pickFileName, activePath, safeName, assignFileNames, filesDirFor, convHash, msgPrefixedName
 } from './exporter.js';
 
 const ROOT = 'ClaudeArchive';
@@ -646,8 +646,10 @@ async function _archiveOnce(convId, { force = false } = {}) {
         await pace(Math.floor(resp.b64.length * 0.75));      // 限速配速(按真实字节)
         const hash = await sha256OfB64(resp.b64);
         if (!hash) logLine('write', '警告:内容哈希计算失败,该文件将无法判重', { name: a.name || a.path });
-        if (hash && seenHashes.has(hash)) { skipCount++; continue; } // 规则3:同哈希不存
-        const baseName = pickFileName(resp.cd, a.name, a.path, resp.ct);
+        if (hash && seenHashes.has(hash)) { skipCount++; continue; } // 规则3:同哈希不存(跨消息同内容也只存一份)
+        const rawName = pickFileName(resp.cd, a.name, a.path, resp.ct);
+        // 版本归属:文件名前缀 = 产生它的消息 uuid8。不同消息的同名文件天然区分,viewer 可精确定位
+        const baseName = msgPrefixedName(a.msgUuid, rawName);
         const finalName = decideName(baseName, hash);
         if (!finalName) { skipCount++; continue; }
         const rel = `${convDir}/${finalName}`;
@@ -656,14 +658,14 @@ async function _archiveOnce(convId, { force = false } = {}) {
       }
     }
 
-    // 文本附件(同规则)
+    // 文本附件(同规则:带消息前缀)
     for (const m of (st.data.chat_messages || [])) {
       for (const a of (m.attachments || [])) {
         if (a && typeof a.extracted_content === 'string' && a.extracted_content.trim()) {
           const hash = await sha256OfText(a.extracted_content);
           if (hash && seenHashes.has(hash)) { skipCount++; continue; }
           const stem = safeName(String(a.file_name || 'attachment').replace(/\.[^.]+$/, ''), 70) || 'attachment';
-          const baseName = stem + '.txt';
+          const baseName = msgPrefixedName(m.uuid, stem + '.txt');
           const finalName = decideName(baseName, hash);
           if (!finalName) { skipCount++; continue; }
           const rel = `${convDir}/${finalName}`;

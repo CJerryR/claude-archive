@@ -224,31 +224,32 @@ export function collectAssets(data, orgId, convId) {
   };
   const uuidOf = (p) => { const m = p && p.match(/\/files\/([0-9a-f-]{36})/i); return m ? m[1].toLowerCase() : null; };
   const pathOf = (p) => { const m = p && p.match(/[?&]path=([^&]+)/i); return m ? decodeURIComponent(m[1]).toLowerCase() : null; };
-  const consider = (u, name) => {
+  const consider = (u, name, msgUuid) => {
     const p = norm(u);
     if (!p) return;
     if (/\/thumbnail(\b|$|\?)/i.test(p)) return; // 缩略图不要
     const fu = uuidOf(p);                 // 文件 uuid(图片类有)
     const key = fu || pathOf(p) || p;     // 同一文件的去重 key
     const prev = byKey.get(key);
-    if (!prev) { byKey.set(key, { name: name || null, path: p, uuid: fu || null }); return; }
+    if (!prev) { byKey.set(key, { name: name || null, path: p, uuid: fu || null, msgUuid: msgUuid || null }); return; }
     if (name && !prev.name) prev.name = name;
     if (fu && !prev.uuid) prev.uuid = fu;
+    if (msgUuid && !prev.msgUuid) prev.msgUuid = msgUuid;
     const better = /\/(original|full|contents|download)(\b|$|\?)/i.test(p) && !/\/(original|full|contents|download)(\b|$|\?)/i.test(prev.path);
     if (better) prev.path = p;
   };
   // 非图片文件(file_kind=blob 或有 path 字段,如 docx/json/md/zip)→ wiggle 下载接口
-  const considerBlob = (f, name) => {
+  const considerBlob = (f, name, msgUuid) => {
     const fp = f && typeof f.path === 'string' ? f.path : null;
     if (fp && orgId && convId) {
-      consider(`/api/organizations/${orgId}/conversations/${convId}/wiggle/download-file?path=${encodeURIComponent(fp)}`, name);
+      consider(`/api/organizations/${orgId}/conversations/${convId}/wiggle/download-file?path=${encodeURIComponent(fp)}`, name, msgUuid);
       return true;
     }
     return false;
   };
 
   // 生成文件:按"轮次(消息)+ 路径"去重 —— 不同轮次的同名文件视为不同版本,各自保留
-  const considerByPath = (fp, name, uuid, round) => {
+  const considerByPath = (fp, name, uuid, round, msgUuid) => {
     if (!fp || typeof fp !== 'string' || !orgId || !convId) return;
     const u = `/api/organizations/${orgId}/conversations/${convId}/wiggle/download-file?path=${encodeURIComponent(fp)}`;
     const p = norm(u);
@@ -256,8 +257,9 @@ export function collectAssets(data, orgId, convId) {
     const base = fp.split('/').pop() || name || null;  // 真实文件名(带扩展名)
     const key = 'gen:' + (round||'') + ':' + fp.toLowerCase();  // 轮次+路径 为去重键
     const prev = byKey.get(key);
-    if (!prev) { byKey.set(key, { name: base, path: p, uuid: uuid || null, subdir: round || null, round: round || null }); return; }
+    if (!prev) { byKey.set(key, { name: base, path: p, uuid: uuid || null, subdir: round || null, round: round || null, msgUuid: msgUuid || null }); return; }
     if (base && !prev.name) prev.name = base;
+    if (msgUuid && !prev.msgUuid) prev.msgUuid = msgUuid;
   };
 
   // 轮次目录名:r{消息序号}_{时分秒}_{uuid8},直观且唯一,保证不同轮次同名文件共存
@@ -271,14 +273,15 @@ export function collectAssets(data, orgId, convId) {
   const msgArr = data?.chat_messages || [];
   for (let mi = 0; mi < msgArr.length; mi++) {
     const m = msgArr[mi];
+    const mu = m.uuid || null;            // 产生这些文件的消息 uuid(版本归属钥匙)
     for (const a of (m.attachments || [])) {
-      consider(a.preview_url, a.file_name);
-      consider(a.file_url, a.file_name);
-      consider(a.document_url, a.file_name);
-      considerBlob(a, a.file_name); // 附件带 path 时走 wiggle
+      consider(a.preview_url, a.file_name, mu);
+      consider(a.file_url, a.file_name, mu);
+      consider(a.document_url, a.file_name, mu);
+      considerBlob(a, a.file_name, mu); // 附件带 path 时走 wiggle
       const fid = a.file_uuid || a.id;
       if (!a.preview_url && !a.file_url && !a.document_url && !a.path && fid && orgId) {
-        consider(`/api/${orgId}/files/${fid}/preview`, a.file_name);
+        consider(`/api/${orgId}/files/${fid}/preview`, a.file_name, mu);
       }
     }
     const files = [
@@ -288,18 +291,18 @@ export function collectAssets(data, orgId, convId) {
     for (const f of files) {
       const name = f.file_name || f.file_uuid || null;
       const isImage = f.file_kind === 'image' || !!f.preview_url || !!(f.preview_asset && f.preview_asset.url);
-      consider(f.preview_url, name);
-      if (f.preview_asset && f.preview_asset.url) consider(f.preview_asset.url, name);
-      consider(f.file_url, name);
-      consider(f.url, name);
-      if (f.document && f.document.url) consider(f.document.url, name);
-      const gotBlob = !isImage && considerBlob(f, name);
+      consider(f.preview_url, name, mu);
+      if (f.preview_asset && f.preview_asset.url) consider(f.preview_asset.url, name, mu);
+      consider(f.file_url, name, mu);
+      consider(f.url, name, mu);
+      if (f.document && f.document.url) consider(f.document.url, name, mu);
+      const gotBlob = !isImage && considerBlob(f, name, mu);
       const fid = f.file_uuid || f.uuid;
       if (fid && orgId && isImage && !f.preview_url && !(f.preview_asset && f.preview_asset.url)) {
-        consider(`/api/${orgId}/files/${fid}/preview`, name);
+        consider(`/api/${orgId}/files/${fid}/preview`, name, mu);
       }
       if (!isImage && !gotBlob && fid && orgId) {
-        consider(`/api/${orgId}/files/${fid}/preview`, name);
+        consider(`/api/${orgId}/files/${fid}/preview`, name, mu);
       }
     }
 
@@ -311,7 +314,7 @@ export function collectAssets(data, orgId, convId) {
         if (Array.isArray(c)) {
           for (const item of c) {
             if (item && item.type === 'local_resource' && item.file_path) {
-              considerByPath(item.file_path, item.name, item.uuid, round);
+              considerByPath(item.file_path, item.name, item.uuid, round, mu);
             }
           }
         }
@@ -419,4 +422,20 @@ export function pickFileName(contentDisposition, suggested, url, contentType) {
     if (EXT_BY_CT[ct]) name += EXT_BY_CT[ct];
   }
   return name;
+}
+
+// ── 版本归属:用产生文件的「消息 uuid 前 8 位」作前缀,使不同消息的同名文件天然区分且可精确定位 ──
+// 形如 e5f6a7b8__A.webp。msg8 取消息 uuid 前 8 位(十六进制)。
+export function msgPrefix(msgUuid) {
+  const s = String(msgUuid || '').replace(/[^0-9a-fA-F]/g, '').slice(0, 8).toLowerCase();
+  return s.length === 8 ? s : null;
+}
+export function msgPrefixedName(msgUuid, baseName) {
+  const p = msgPrefix(msgUuid);
+  return p ? `${p}__${baseName}` : baseName;
+}
+// 从带前缀的文件名解析出 {msg8, base};无前缀则 msg8=null
+export function parsePrefixed(fileName) {
+  const m = String(fileName || '').match(/^([0-9a-f]{8})__(.+)$/i);
+  return m ? { msg8: m[1].toLowerCase(), base: m[2] } : { msg8: null, base: String(fileName || '') };
 }

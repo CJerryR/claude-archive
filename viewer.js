@@ -404,12 +404,26 @@ function renderAssistantContent(content, container){
 /* ---------- 资源解析(把 files/ 里的文件映射成可点链接/图片) ---------- */
 const _urls=new Map();
 function objUrl(f){ if(_urls.has(f))return _urls.get(f); const u=URL.createObjectURL(f); _urls.set(f,u); return u; }
-function resolveAsset(conv, filename, uuid, subdir){
+function resolveAsset(conv, filename, uuid, subdir, msgUuid){
   if(!conv) return null;
   const e = state.folders.get(conv._folder); if(!e||!e.files) return null;
   const entries=[...e.files]; // [relName, File]
   const base=(n)=>n.split('/').pop();
   const inSub=(n)=> subdir ? (n===subdir+'/'+base(n) || n.startsWith(subdir+'/') || n.includes('/'+subdir+'/')) : true;
+  // ★ 最优先:用「消息 uuid8 前缀」精确定位版本(新存档命名 = <msg8>__<原名>)
+  //   这样点 12:00 的消息命中 12:00 那条产出,点 13:00 命中 13:00 那条,绝不串版本。
+  const m8 = String(msgUuid||'').replace(/[^0-9a-fA-F]/g,'').slice(0,8).toLowerCase();
+  if(m8 && m8.length===8 && filename){
+    const want = (m8+'__'+String(filename)).toLowerCase();
+    // 完整名(含可能的 __vN 兜底):先精确,再带后缀
+    for(const [n,f] of entries){ if(base(n).toLowerCase()===want) return objUrl(f); }
+    const fn=String(filename); const dot=fn.lastIndexOf('.');
+    const stem=(dot>0?fn.slice(0,dot):fn).toLowerCase(); const ext=(dot>0?fn.slice(dot):'').toLowerCase();
+    const pfxStem=(m8+'__'+stem);
+    for(const [n,f] of entries){ const b=base(n).toLowerCase(); if(b===pfxStem+ext || b.startsWith(pfxStem+'__')) return objUrl(f); }
+    // 该消息前缀下、扩展名一致的唯一文件(原名兜底)
+    for(const [n,f] of entries){ const b=base(n).toLowerCase(); if(b.startsWith(m8+'__') && (!ext||b.endsWith(ext))) return objUrl(f); }
+  }
   // 0) 若指定了轮次子目录:优先在该子目录里精确匹配文件名(每轮打开自己的文件)
   if(subdir && filename){
     const want=String(filename).toLowerCase();
@@ -454,7 +468,7 @@ function blobUrlFor(text,key){
 function makeChip(obj, conv){
   const name = obj.file_name || obj.file_uuid || '文件';
   const uuid = obj.file_uuid || obj.uuid || null;
-  const url = resolveAsset(conv, obj.file_name, uuid, obj._subdir||null);
+  const url = resolveAsset(conv, obj.file_name, uuid, obj._subdir||null, obj._msg||null);
   const isImg = /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(name);
 
   // 独立下载按钮(右键/点击图标才下载),不影响主点击
@@ -626,7 +640,7 @@ function messageEl(m, conv, sibs){
   if(bs) inner.appendChild(bs);
 
   const atts=Array.isArray(m.attachments)?m.attachments:[];
-  const files=[].concat(Array.isArray(m.files)?m.files:[], Array.isArray(m.files_v2)?m.files_v2:[]);
+  const files=[].concat(Array.isArray(m.files)?m.files:[], Array.isArray(m.files_v2)?m.files_v2:[]).map(f=>{ if(f && !f._msg) f._msg=m.uuid||null; return f; });
 
   // Claude 生成的文件:藏在 present_files 等工具结果的 local_resource 里(m.files 常为空)
   // 兼容旧存档(轮次目录)同时支持新存档(对话级 + 版本化命名):传 round 仅作"优先尝试",
@@ -639,7 +653,7 @@ function messageEl(m, conv, sibs){
       for(const item of b.content){
         if(item && item.type==='local_resource' && item.file_path){
           const nm=item.name && /\.[a-z0-9]{1,8}$/i.test(item.name) ? item.name : (item.file_path.split('/').pop()||item.name||'文件');
-          genFiles.push({ file_name:nm, file_uuid:item.uuid||null, _path:item.file_path, _subdir:roundTag });
+          genFiles.push({ file_name:nm, file_uuid:item.uuid||null, _path:item.file_path, _subdir:roundTag, _msg:m.uuid||null });
         }
       }
     }
@@ -650,7 +664,7 @@ function messageEl(m, conv, sibs){
 
   // 用户上传的附件 → 放消息顶部(它们是输入)
   if(atts.length){
-    const c=ce('div','chips'); atts.forEach(a=>c.appendChild(makeChip(a,conv))); inner.appendChild(c);
+    const c=ce('div','chips'); atts.forEach(a=>{ a._msg=a._msg||m.uuid||null; c.appendChild(makeChip(a,conv)); }); inner.appendChild(c);
   }
 
   const content=(Array.isArray(m.content)&&m.content.length)?m.content:(m.text?[{type:'text',text:m.text}]:[]);

@@ -51,6 +51,21 @@
 
 ---
 
+## [2.12.0] - 2026-06-12
+
+### 🐛 修复（Fixed）
+- **修复切换镜像站后弹窗仍显示前一个站点对话**:弹窗「当前对话」与「保存当前对话」改用 `findActiveTab()`,精确取你当前聚焦窗口里激活的那个标签页,跨站点切换即刻跟随;不同站点的标签页各自独立捕获,可**同时在线保存**。「当前对话」并显示所在站点域名。
+
+### 🔧 改进（Changed）
+- 弹窗「支持的网站 / 中转站」区**默认展开**,添加/切换中转站的入口一眼可见(此前折叠易被忽略)。
+- 在非对话页打开弹窗时,「当前对话」给出明确提示(当前页面不是对话页)。
+
+### ✨ 新增（Added）
+- **独立整理脚本 `tools/organize_archive.py`**(无需 Claude Code):Python 运行,按 SHA-256 去重并把产出文件重命名为 `<消息uuid前8>__<原名>`,统一并入 `files/<对话码>/`;默认 dry-run 预览,`--apply` 执行,一切“删除”移入 `_trash/`,不动正本/history;生成 `cleanup-report.csv`。
+- **可发布的技术文档与快速开始页**:`guides/TECHNICAL_GUIDE.html`(完整功能/原理/FAQ)、`guides/quick-start.html`(一页式上手),均为自包含 HTML,可直接发布到网上。
+
+---
+
 ## [2.11.0] - 2026-06-12
 
 ### ✨ 新增（Added）
@@ -354,7 +369,7 @@
 标注 _(开发期)_ 的版本为 1.0.0–1.8.0，于项目早期密集迭代完成，日期为对应开发阶段的近似值；
 1.9.0 起的版本日期可精确对应。所有版本的功能演进均如实记录。
 
-[Unreleased]: https://github.com/CJerryR/claude-archive/compare/v2.11.0...HEAD
+[Unreleased]: https://github.com/CJerryR/claude-archive/compare/v2.12.0...HEAD
 [2.9.0]: https://github.com/CJerryR/claude-archive/releases/tag/v2.9.0
 [2.8.0]: https://github.com/CJerryR/claude-archive/releases/tag/v2.8.0
 [2.7.1]: https://github.com/CJerryR/claude-archive/releases/tag/v2.7.1

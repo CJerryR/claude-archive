@@ -428,6 +428,23 @@ async function findTab() {
   const active = tabs.find(t => t.active) || tabs[0];
   return active?.id ?? null;
 }
+// 当前用户正看着的那个 Claude 标签页(优先当前聚焦窗口的活动标签页),用于 popup 显示"当前对话"
+async function findActiveTab() {
+  const globs = await allTabGlobs();
+  // 1) 当前聚焦窗口里、被激活的匹配标签页
+  try {
+    const inFocused = await chrome.tabs.query({ url: globs, active: true, lastFocusedWindow: true });
+    if (inFocused && inFocused[0]) return inFocused[0];
+  } catch (e) {}
+  // 2) 任意窗口里被激活的匹配标签页
+  try {
+    const anyActive = await chrome.tabs.query({ url: globs, active: true });
+    if (anyActive && anyActive[0]) return anyActive[0];
+  } catch (e) {}
+  // 3) 兜底:任意匹配标签页
+  try { const all = await chrome.tabs.query({ url: globs }); if (all && all[0]) return all[0]; } catch (e) {}
+  return null;
+}
 function askTab(tabId, msg, timeoutMs = 30000) {
   return new Promise((resolve) => {
     let done = false;
@@ -803,16 +820,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       const settings = await getSettings();
       const { stats, index } = await chrome.storage.local.get(['stats', 'index']);
-      const tabId = await findTab();
+      const tab = await findActiveTab();
       let current = null;
-      if (tabId != null) {
+      if (tab) {
         try {
-          const t = await chrome.tabs.get(tabId);
-          const m = String(t.url || '').match(/\/chat\/([0-9a-f-]{36})/i);
+          let host = ''; try { host = new URL(tab.url).hostname; } catch (e) {}
+          const m = String(tab.url || '').match(/\/chat\/([0-9a-f-]{36})/i);
           if (m) {
             const cid = m[1];
             const st = state.get(cid);
-            current = { convId: cid, name: st?.name || '(打开中…)', captured: !!st?.data, full: !!st?.full };
+            current = { convId: cid, name: st?.name || '(打开中…)', captured: !!st?.data, full: !!st?.full, host };
+          } else {
+            current = { convId: null, name: null, captured: false, full: false, host };
           }
         } catch {}
       }
@@ -820,9 +839,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({
         ok: true, settings, stats: stats || {},
         convCount: Object.keys(index || {}).length,
-        tracked: Object.keys(index || {}).length, // 已跟踪=持久索引里的对话数(刷新不清零)
+        tracked: Object.keys(index || {}).length,
         current,
-        direct: { status: dh.status, name: dh.name }   // unbound | need-reauth | granted
+        direct: { status: dh.status, name: dh.name }
       });
     })();
     return true;
@@ -889,11 +908,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.kind === 'popup:saveCurrent') {
     (async () => {
-      const tabId = await findTab();
-      if (tabId == null) return sendResponse({ ok: false, error: '没有打开的 Claude.ai 标签页' });
-      const cap = await askTab(tabId, { kind: 'captureHere' }, 30000);
-      if (!cap || !cap.ok) return sendResponse({ ok: false, error: cap?.error || '抓取失败' });
-      // captureHere 已通过 capture 通道写入 state;直接强制归档
+      const tab = await findActiveTab();
+      if (!tab) return sendResponse({ ok: false, error: '没有打开的 Claude / 镜像站标签页' });
+      const cap = await askTab(tab.id, { kind: 'captureHere' }, 30000);
+      if (!cap || !cap.ok) return sendResponse({ ok: false, error: cap?.error || '抓取失败(该站点可能未授权,请在「支持的网站」里添加)' });
       await new Promise(r => setTimeout(r, 400));
       const res = await archive(cap.convId, { force: true });
       sendResponse(res.ok ? { ok: true, files: res.files, name: cap.name } : { ok: false, error: res.error });

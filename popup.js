@@ -43,10 +43,11 @@ function paintState(r) {
       pill.className = 'pill idle';
       pill.textContent = '等待';
     }
-    $('curName').textContent = cur.name || '当前对话';
-    $('curMeta').textContent = cur.captured
+    $('curName').textContent = cur.name || (cur.convId ? '当前对话' : '当前页面不是对话页');
+    const hostTag = cur.host ? `[${cur.host}] ` : '';
+    $('curMeta').textContent = hostTag + (cur.captured
       ? (cur.full ? '思考链与工具调用已就绪' : '基础内容已捕获,发消息或点保存可补全')
-      : '在此对话发一条消息即可开始捕获';
+      : (cur.convId ? '在此对话发一条消息即可开始捕获' : '打开一个对话页即可'));
   } else {
     box.style.display = 'none';
   }

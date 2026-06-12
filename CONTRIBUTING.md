@@ -36,7 +36,7 @@ done
 # 校验 ES Module 是否能正确链接（node --check 查不出的导出错误）
 node -e "import('./exporter.js').then(()=>console.log('ok'))"
 
-# 校验 viewer.html / 整理报告.html 内联脚本（抽出 <script> 再 --check）
+# 校验 viewer.html / tools/cleanup-report.html 内联脚本（抽出 <script> 再 --check）
 ```
 
 加载扩展：浏览器扩展页 → 开发者模式 → 加载已解压的扩展程序 → 选含 `manifest.json` 的目录。

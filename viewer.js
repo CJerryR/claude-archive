@@ -1,498 +1,3 @@
-<!doctype html>
-<html lang="zh-CN" data-theme="dark">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Claude · 本地存档查看器</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous">
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" crossorigin="anonymous"></script>
-<style>
-  :root[data-theme="dark"]{
-    --bg:#1f1e1d; --bg-side:#1a1917; --bg-elev:#2a2826; --bg-user:#2a2826;
-    --text:#faf9f5; --text-2:#c2bfb6; --text-3:#8b877e; --text-faint:#6b675f;
-    --border:#3a3833; --border-soft:#2b2a27; --accent:#d97757; --accent-soft:#3a2a23; --code-border:#54392f;
-    --code-bg:#1a1917; --detail-bg:#262523; --active:#2f2d2a; --hover:#282724;
-    --scroll:#403e38;
-  }
-  :root[data-theme="light"]{
-    --bg:#ffffff; --bg-side:#f5f4ee; --bg-elev:#f0efe8; --bg-user:#f3f1e9;
-    --text:#2b2925; --text-2:#69655d; --text-3:#94908857; --text-3:#928e86; --text-faint:#b3afa6;
-    --border:#e7e4db; --border-soft:#eeece4; --accent:#c4623d; --accent-soft:#f5e7df; --code-border:#e9d3c7;
-    --code-bg:#f4f3ec; --detail-bg:#f6f5ef; --active:#eae8df; --hover:#efeee7;
-    --scroll:#d8d5cc;
-  }
-  *{box-sizing:border-box;margin:0;padding:0}
-  html,body{height:100%}
-  body{
-    font-family:var(--sans);background:var(--bg);color:var(--text);
-    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;overflow:hidden;
-    --sans:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
-    --serif:"Tiempos Text",Georgia,"Songti SC","Noto Serif CJK SC","Source Han Serif SC","Times New Roman",serif;
-    --mono:"Cascadia Code","Cascadia Mono",Consolas,"JetBrains Mono","SF Mono",Menlo,"DejaVu Sans Mono","Courier New",monospace;
-  }
-  ::-webkit-scrollbar{width:10px;height:10px}
-  ::-webkit-scrollbar-thumb{background:var(--scroll);border-radius:6px;border:2px solid transparent;background-clip:content-box}
-  ::-webkit-scrollbar-track{background:transparent}
-
-  .app{display:flex;height:100vh}
-
-  /* ---------- 侧栏 ---------- */
-  .sidebar{
-    width:272px;flex:none;background:var(--bg-side);border-right:1px solid var(--border-soft);
-    display:flex;flex-direction:column;height:100vh;
-  }
-  .brand{
-    display:flex;align-items:center;gap:8px;padding:18px 18px 10px;
-  }
-  .brand .logo{font-family:var(--serif);font-size:23px;font-weight:500;letter-spacing:.2px;color:var(--text)}
-  .brand .sp{margin-left:auto;display:flex;gap:6px;color:var(--text-3)}
-  .brand .ic{width:30px;height:30px;display:grid;place-items:center;border-radius:7px;cursor:pointer}
-  .brand .ic:hover{background:var(--hover);color:var(--text)}
-  .brand .ic svg{width:18px;height:18px}
-
-  .side-pad{padding:6px 12px}
-  .load-btn{
-    display:flex;align-items:center;gap:9px;width:100%;padding:9px 11px;border-radius:9px;
-    background:transparent;border:1px solid var(--border);color:var(--text);cursor:pointer;
-    font-family:var(--sans);font-size:14px;font-weight:500;transition:background .14s,border-color .14s;
-  }
-  .load-btn:hover{background:var(--hover)}
-  .load-btn svg{width:17px;height:17px;flex:none;color:var(--accent)}
-  .load-btn-sub{margin-top:6px;padding:7px 11px;font-size:12.5px;color:var(--text-2)}
-  .load-btn-sub svg{width:15px;height:15px}
-  .btn-hint{font-size:10.5px;color:var(--text-faint);line-height:1.4;margin:3px 2px 0;padding-left:1px}
-
-  .search{padding:8px 12px 4px;position:relative}
-  .search svg{position:absolute;left:22px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--text-3)}
-  .search input{
-    width:100%;padding:8px 10px 8px 32px;border-radius:8px;border:1px solid transparent;
-    background:var(--bg-elev);color:var(--text);font-family:var(--sans);font-size:13.5px;outline:none;
-  }
-  .search input:focus{border-color:var(--border)}
-  .search input::placeholder{color:var(--text-3)}
-
-  .convlist{flex:1;overflow-y:auto;padding:6px 8px 16px}
-  .side-group{margin-top:10px}
-  .side-group-t{
-    font-size:11px;font-weight:600;color:var(--text-3);letter-spacing:.4px;
-    padding:6px 10px 4px;text-transform:none;
-  }
-  .conv-item{
-    display:block;width:100%;text-align:left;padding:7px 10px;border-radius:8px;border:0;
-    background:transparent;color:var(--text-2);cursor:pointer;font-family:var(--sans);font-size:13.5px;
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .12s,color .12s;
-  }
-  .conv-item:hover{background:var(--hover);color:var(--text)}
-  .conv-item.active{background:var(--active);color:var(--text);font-weight:500}
-  mark.hk{color:var(--accent);background:var(--accent-soft);border:1px solid var(--code-border);border-radius:4px;padding:0 3px;font-weight:600}
-  .side-empty{padding:24px 14px;color:var(--text-3);font-size:13px;text-align:center;line-height:1.7}
-
-  .side-foot{
-    padding:10px 16px;border-top:1px solid var(--border-soft);
-    font-size:11.5px;color:var(--text-3);display:flex;align-items:center;gap:8px;
-  }
-  .side-foot .dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
-
-  /* ---------- 主区 ---------- */
-  .main{flex:1;display:flex;flex-direction:column;height:100vh;min-width:0;background:var(--bg)}
-  .topbar{
-    height:56px;flex:none;display:flex;align-items:center;gap:10px;padding:0 20px;
-    border-bottom:1px solid var(--border-soft);
-  }
-  .top-title{
-    font-family:var(--serif);font-size:16px;font-weight:500;color:var(--text);
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60%;
-  }
-  .top-model{
-    font-family:var(--mono);font-size:11px;color:var(--text-3);background:var(--bg-elev);
-    padding:3px 8px;border-radius:6px;
-  }
-  .top-merged{
-    font-family:var(--sans);font-size:11px;color:var(--accent);background:var(--accent-soft);
-    padding:3px 9px;border-radius:6px;font-weight:600;
-  }
-  .top-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
-  .top-btn{
-    display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;
-    border:1px solid var(--border);background:transparent;color:var(--text-2);cursor:pointer;
-    font-family:var(--sans);font-size:13px;transition:background .14s,color .14s}
-  .top-btn:hover{background:var(--hover);color:var(--text)}
-  .top-btn svg{width:15px;height:15px}
-
-  .thread{flex:1;overflow-y:auto;padding:8px 0 80px}
-  .thread-inner{max-width:744px;margin:0 auto;padding:18px 28px}
-
-  /* ---------- 消息 ---------- */
-  .msg{margin:6px 0 26px}
-  .msg-inner{}
-  .msg.human .msg-inner{
-    background:var(--bg-user);border-radius:14px;padding:13px 17px;
-    font-family:var(--sans);font-size:15px;color:var(--text);width:fit-content;max-width:100%;margin-left:auto;
-  }
-  .msg.assistant .msg-inner{padding:2px 0}
-  .msg.assistant .md{font-family:var(--serif);font-size:16px;line-height:1.72;color:var(--text)}
-
-  .md>*:first-child{margin-top:0}
-  .md>*:last-child{margin-bottom:0}
-  .md p{margin:0 0 14px}
-  .md h1,.md h2,.md h3,.md h4{font-family:var(--serif);font-weight:600;line-height:1.3;margin:22px 0 12px}
-  .md h1{font-size:25px} .md h2{font-size:21px} .md h3{font-size:18px} .md h4{font-size:16px}
-  .md ul,.md ol{margin:0 0 14px;padding-left:24px}
-  .md li{margin:4px 0}
-  .md a{color:var(--accent);text-decoration:none}
-  .md a:hover{text-decoration:underline}
-  .md strong{font-weight:650}
-  /* Claude 风格引用块:浅色卡片背景 + 左侧赤陶色条 */
-  .md blockquote{border-left:3px solid var(--accent);background:var(--detail-bg);border-radius:0 8px 8px 0;
-    margin:0 0 14px;padding:10px 16px;color:var(--text-2)}
-  .md blockquote p:last-child{margin-bottom:0}
-  .md hr{border:0;border-top:1px solid var(--border);margin:20px 0}
-  .md code{font-family:var(--mono);font-size:.86em;color:var(--accent);background:var(--accent-soft);border:1px solid var(--code-border);padding:1.5px 6px;border-radius:6px}
-  /* 代码块:顶栏(语言+复制) + VSCode 风格代码区 */
-  .codewrap{margin:0 0 14px;border:1px solid var(--border-soft);border-radius:10px;overflow:hidden;background:#1e1e1e}
-  .codebar{display:flex;align-items:center;justify-content:space-between;padding:6px 10px 6px 14px;
-    background:#252526;border-bottom:1px solid #333}
-  .codelang{font-family:var(--mono);font-size:11px;color:#9c9c9c;text-transform:lowercase;letter-spacing:.3px}
-  .codecopy{display:inline-flex;align-items:center;gap:5px;background:transparent;border:1px solid #3a3a3a;
-    color:#cfcfcf;font-family:var(--sans);font-size:11.5px;padding:3px 9px;border-radius:6px;cursor:pointer;transition:all .14s}
-  .codecopy:hover{background:#2d2d2e;border-color:#4a4a4a;color:#fff}
-  .codecopy.copied{border-color:var(--accent);color:var(--accent)}
-  .codecopy svg{width:13px;height:13px}
-  .codewrap pre.md-code{background:#1e1e1e;border:0;border-radius:0;padding:13px 16px;margin:0;overflow:auto}
-  .codewrap pre.md-code code{background:transparent;padding:0;font-size:13.5px;line-height:1.65;color:#d4d4d4;font-family:var(--mono)}
-  /* VSCode Dark+ 经典配色 */
-  .tk-kw{color:#569cd6}      /* 关键字 蓝 */
-  .tk-str{color:#ce9178}     /* 字符串 橙棕 */
-  .tk-com{color:#6a9955;font-style:italic}  /* 注释 绿 */
-  .tk-num{color:#b5cea8}     /* 数字 浅绿 */
-  .tk-fn{color:#dcdcaa}      /* 函数名 黄 */
-  /* 公式 */
-  .math-fallback{font-family:var(--mono);font-size:.9em;color:var(--text-2);background:var(--code-bg);padding:1px 5px;border-radius:4px}
-  .math-fallback.math-block{display:block;padding:10px 14px;margin:0 0 12px;overflow-x:auto;text-align:center}
-  .md .katex-display{margin:12px 0;overflow-x:auto;overflow-y:hidden}
-  .md .katex{font-size:1.05em}
-  .md .md-tablewrap{overflow-x:auto;margin:0 0 14px}
-  .md table.md-table{border-collapse:collapse;font-family:var(--sans);font-size:14px;width:100%}
-  .md table.md-table th,.md table.md-table td{border:1px solid var(--border);padding:7px 11px;text-align:left;vertical-align:top}
-  .md table.md-table th{background:var(--bg-elev);font-weight:600}
-
-  /* ---------- 思考过程(仿 Claude:折叠 + 缩进 prose) ---------- */
-  details.think{margin:2px 0 16px}
-  details.think>summary{
-    list-style:none;cursor:pointer;user-select:none;
-    display:inline-flex;align-items:center;gap:7px;
-    font-family:var(--sans);font-size:13px;color:var(--text-3);padding:3px 2px;border-radius:7px;
-  }
-  details.think>summary::-webkit-details-marker{display:none}
-  details.think>summary:hover{color:var(--text-2)}
-  details.think>summary .spark{width:14px;height:14px;flex:none;color:var(--accent);opacity:.9}
-  details.think>summary .chev{
-    width:7px;height:7px;border-right:1.6px solid currentColor;border-bottom:1.6px solid currentColor;
-    transform:rotate(-45deg);transition:transform .16s;flex:none;margin-left:1px;
-  }
-  details.think[open]>summary .chev{transform:rotate(45deg)}
-  .think-body{
-    margin:9px 0 0;padding:1px 0 1px 18px;border-left:2px solid var(--border);
-    font-family:var(--serif);font-size:14.5px;line-height:1.72;color:var(--text-2);
-  }
-  .think-body>*:first-child{margin-top:0}
-  .think-body>*:last-child{margin-bottom:0}
-  .think-body p{margin:0 0 11px}
-  .think-body code{font-family:var(--mono);font-size:.85em;background:var(--code-bg);padding:1px 5px;border-radius:5px}
-  .think-body pre.md-code{background:var(--code-bg);border:1px solid var(--border-soft);border-radius:9px;padding:11px 13px;overflow:auto;margin:0 0 11px}
-  .think-body pre.md-code code{background:transparent;padding:0;font-size:12.5px}
-
-  /* ---------- 工具调用 / 结果(仿 Claude 卡片) ---------- */
-  details.toolcard{
-    border:1px solid var(--border-soft);border-radius:12px;background:var(--detail-bg);
-    margin:0 0 14px;overflow:hidden;
-  }
-  details.toolcard>summary{
-    list-style:none;cursor:pointer;user-select:none;
-    display:flex;align-items:center;gap:11px;padding:10px 13px;
-    font-family:var(--sans);font-size:13.5px;
-  }
-  details.toolcard>summary::-webkit-details-marker{display:none}
-  details.toolcard>summary:hover{background:var(--hover)}
-  .tool-ic{width:27px;height:27px;flex:none;border-radius:8px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent)}
-  .tool-ic svg{width:15px;height:15px}
-  .tool-meta{flex:1;min-width:0}
-  .tool-name{font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono);font-size:12.5px}
-  .tool-kind{font-size:11.5px;color:var(--text-3);margin-top:2px}
-  .tool-chev{width:8px;height:8px;border-right:2px solid var(--text-3);border-bottom:2px solid var(--text-3);transform:rotate(-45deg);transition:transform .16s;flex:none}
-  details.toolcard[open]>summary .tool-chev{transform:rotate(45deg)}
-  details.toolcard.err .tool-ic{background:rgba(212,77,77,.14);color:#e08a8a}
-  .tool-body{border-top:1px solid var(--border-soft);padding:12px 14px}
-  .tool-body .lbl{font-family:var(--sans);font-size:11px;letter-spacing:.4px;color:var(--text-3);margin:0 0 7px;font-weight:600;text-transform:uppercase}
-  .tool-body .lbl.gap{margin-top:14px}
-  .tool-pre{
-    font-family:var(--mono);font-size:13px;line-height:1.62;color:var(--text);
-    white-space:pre-wrap;word-break:break-word;background:var(--code-bg);
-    border-radius:8px;padding:11px 12px;max-height:340px;overflow:auto;
-  }
-  .tool-prose{font-family:var(--serif);font-size:14.5px;line-height:1.66;color:var(--text);max-height:380px;overflow:auto}
-  .tool-prose>*:first-child{margin-top:0}.tool-prose>*:last-child{margin-bottom:0}
-  .tool-prose p{margin:0 0 9px}
-  .tool-prose code{font-family:var(--mono);font-size:.85em;background:var(--code-bg);padding:1px 5px;border-radius:5px}
-  .tool-prose pre.md-code{background:var(--code-bg);border:1px solid var(--border-soft);border-radius:9px;padding:11px 13px;overflow:auto;margin:0 0 9px}
-
-  /* ---------- 思考过程链(仿 Claude:思考正文 + 内嵌工具节点) ---------- */
-  .process{margin:4px 0 18px}
-  .process>summary{
-    list-style:none;cursor:pointer;user-select:none;display:inline-flex;align-items:center;gap:8px;
-    padding:5px 2px;font-family:var(--sans);font-size:13.5px;color:var(--text-3);border-radius:8px;
-  }
-  .process>summary::-webkit-details-marker{display:none}
-  .process>summary:hover{color:var(--text-2)}
-  .process>summary .spark{width:15px;height:15px;flex:none;color:var(--accent);opacity:.92}
-  .process>summary .ptitle{color:var(--text-2);font-weight:550}
-  .process>summary .pcount{font-size:11.5px;color:var(--text-faint);font-family:var(--mono)}
-  .process>summary .chev{width:8px;height:8px;border-right:1.7px solid currentColor;border-bottom:1.7px solid currentColor;transform:rotate(-45deg);transition:transform .18s;flex:none;margin-left:1px}
-  .process[open]>summary .chev{transform:rotate(45deg)}
-  /* 展开后整条链有一根贯穿左竖线(像 Claude 思考缩进) */
-  .steps{margin:9px 0 0;padding:2px 0 2px 0;border-left:2px solid var(--border);}
-  .step{position:relative;padding:0 0 0 24px;margin-left:14px}
-  .step>summary{
-    list-style:none;cursor:pointer;user-select:none;display:flex;align-items:center;gap:9px;
-    padding:7px 0;font-family:var(--sans);font-size:13px;color:var(--text-2);position:relative;
-  }
-  .step>summary::-webkit-details-marker{display:none}
-  .step>summary:hover{color:var(--text)}
-  .step>summary .node{
-    position:absolute;left:-23px;top:50%;transform:translateY(-50%);
-    width:15px;height:15px;border-radius:50%;background:var(--bg);
-    border:2px solid var(--border);display:grid;place-items:center;color:var(--text-3);
-  }
-  .step>summary .node svg{width:8px;height:8px}
-  .step.s-think>summary .node{border-color:var(--accent);color:var(--accent)}
-  .step.s-tool>summary .node{border-color:var(--accent);color:var(--accent)}
-  .step.s-err>summary .node{border-color:#d4574d;color:#e08a8a}
-  .step[open]>summary .node{background:var(--accent);color:#fff;border-color:var(--accent)}
-  .step.s-err[open]>summary .node{background:#d4574d;color:#fff;border-color:#d4574d}
-  .step>summary .slabel{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-  .step>summary .slabel b{font-weight:600;color:var(--text);font-family:var(--mono);font-size:12px}
-  .step>summary .slabel .tname{font-family:var(--mono);font-size:10.5px;color:var(--text-faint);background:var(--code-bg);padding:1px 6px;border-radius:5px;margin-left:6px}
-  .step>summary .stag{font-size:10.5px;color:var(--text-faint);flex:none;margin-left:6px}
-  .step>summary .schev{width:7px;height:7px;border-right:1.6px solid var(--text-3);border-bottom:1.6px solid var(--text-3);transform:rotate(-45deg);transition:transform .16s;flex:none}
-  .step[open]>summary .schev{transform:rotate(45deg)}
-  .step-body{padding:0 0 12px}
-  .step-body .lbl{font-family:var(--sans);font-size:11px;letter-spacing:.4px;color:var(--text-3);margin:6px 0 6px;font-weight:600;text-transform:uppercase}
-  .step-body .lbl.gap{margin-top:13px}
-  .step-think{font-family:var(--serif);font-size:14.5px;line-height:1.72;color:var(--text-2)}
-  .step-think>*:first-child{margin-top:0}.step-think>*:last-child{margin-bottom:0}
-  .step-think p{margin:0 0 10px}
-  .step-think code{font-family:var(--mono);font-size:.85em;background:var(--code-bg);padding:1px 5px;border-radius:5px}
-  .step-think pre.md-code{background:var(--code-bg);border:1px solid var(--border-soft);border-radius:9px;padding:11px 13px;overflow:auto;margin:0 0 10px}
-  /* 思考的逐阶段摘要(展开时显示在正文上方,像 Claude 的小标题序列) */
-  .think-tags{margin:0 0 12px;padding:9px 12px;background:var(--code-bg);border-radius:9px}
-  .think-tag{display:flex;align-items:flex-start;gap:8px;font-family:var(--sans);font-size:12.5px;color:var(--text-2);padding:2px 0}
-  .think-tag .dot{flex:none;width:5px;height:5px;border-radius:50%;background:var(--accent);margin-top:7px}
-
-  /* ---------- 状态徽标:打断 / 工具上限 ---------- */
-  .statusbar{display:flex;align-items:center;gap:8px;margin:2px 0 14px;
-    font-family:var(--sans);font-size:12.5px;padding:8px 12px;border-radius:9px;border:1px solid var(--border-soft)}
-  .statusbar svg{width:15px;height:15px;flex:none}
-  .statusbar.cancel{background:rgba(180,150,80,.10);border-color:rgba(190,160,90,.32);color:var(--warn)}
-  .statusbar.limit{background:rgba(217,122,87,.10);border-color:rgba(217,122,87,.32);color:var(--accent)}
-
-  /* ---------- 分支切换器(左右叶子) ---------- */
-  .branchbar{display:flex;align-items:center;gap:6px;margin:0 0 8px;justify-content:flex-end}
-  .msg.human .branchbar{justify-content:flex-end}
-  .msg.assistant .branchbar{justify-content:flex-start}
-  .branchbar .bb{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:8px;
-    background:var(--bg-elev);border:1px solid var(--border-soft);color:var(--text-3);font-family:var(--sans);font-size:11.5px}
-  .branchbar .barrow{width:22px;height:22px;display:grid;place-items:center;border-radius:6px;cursor:pointer;color:var(--text-2);border:0;background:transparent}
-  .branchbar .barrow:hover{background:var(--hover);color:var(--text)}
-  .branchbar .barrow:disabled{opacity:.3;cursor:default}
-  .branchbar .barrow svg{width:13px;height:13px}
-  .branchbar .bcount{font-family:var(--mono);font-size:11px;color:var(--text-2);min-width:30px;text-align:center}
-
-  /* ---------- 动画与交互打磨 ---------- */
-  @keyframes ccaFade{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
-  @keyframes ccaMsg{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-  @keyframes ccaPulse{0%,100%{opacity:.55}50%{opacity:1}}
-  details.think[open] .think-body,
-  details.toolcard[open] .tool-body,
-  details.process[open] .steps,
-  details.step[open] .step-body{ animation:ccaFade .22s ease; }
-  .msg{ animation:ccaMsg .26s ease both; }
-  .process>summary .spark,.think>summary .spark{ transition:opacity .2s }
-  details.process:not([open])>summary:hover .spark,
-  details.think:not([open])>summary:hover .spark{ animation:ccaPulse 1.4s ease-in-out infinite }
-  .step>summary .node{ transition:background .18s,border-color .18s,color .18s,transform .12s }
-  .step>summary:hover .node{ transform:translateY(-50%) scale(1.12) }
-  details.toolcard,details.process,details.think>summary,.chip,.conv-item{ transition:background .14s,border-color .14s,box-shadow .14s }
-  a.chip:hover{ box-shadow:0 1px 0 rgba(0,0,0,.04) }
-  @media (prefers-reduced-motion: reduce){
-    *{animation:none !important}
-    details.think[open] .think-body,details.toolcard[open] .tool-body,
-    details.process[open] .steps,details.step[open] .step-body,.msg{animation:none !important}
-  }
-
-  /* ---------- 附件 / 文件 ---------- */
-  .chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
-  .chips-label{width:100%;font-family:var(--sans);font-size:11px;color:var(--text-3);margin:2px 0 -2px;font-weight:600}
-  .msg-foot{display:flex;align-items:center;gap:7px;margin-top:8px;font-family:var(--sans);font-size:11px;color:var(--text-faint)}
-  .msg.human .msg-foot{justify-content:flex-end}
-  .msg-foot .mf-think{color:var(--accent);opacity:.85}
-  .msg-foot .mf-dot{opacity:.5}
-  /* 统计面板 */
-  .stats-modal{position:fixed;inset:0;z-index:210;display:flex;align-items:center;justify-content:center;padding:24px}
-  .stats-bd{position:absolute;inset:0;background:rgba(0,0,0,.55)}
-  .stats-card{position:relative;background:var(--bg);border:1px solid var(--border);border-radius:16px;
-    width:min(680px,94vw);max-height:88vh;overflow:auto;box-shadow:0 20px 70px rgba(0,0,0,.4)}
-  .stats-head{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--border-soft);
-    font-family:var(--sans);font-size:16px;font-weight:650;color:var(--text);position:sticky;top:0;background:var(--bg)}
-  .stats-close{cursor:pointer;color:var(--text-3);font-size:18px;line-height:1}
-  .stats-close:hover{color:var(--text)}
-  .stats-body{padding:18px 22px 24px}
-  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
-  .stat-cell{background:var(--detail-bg);border:1px solid var(--border-soft);border-radius:12px;padding:14px 16px}
-  .stat-num{font-family:var(--sans);font-size:24px;font-weight:700;color:var(--accent);line-height:1.1}
-  .stat-lbl{font-family:var(--sans);font-size:12px;color:var(--text-2);margin-top:5px}
-  .stat-sec{font-family:var(--sans);font-size:12px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 10px}
-  .stat-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border-soft);font-family:var(--sans);font-size:13.5px;color:var(--text-2)}
-  .stat-row b{color:var(--text);font-weight:600}
-  .stat-bar{height:7px;background:var(--code-bg);border-radius:4px;overflow:hidden;margin-top:4px}
-  .stat-bar > i{display:block;height:100%;background:var(--accent);border-radius:4px}
-  .chip{
-    display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border-radius:9px;
-    background:var(--bg-elev);border:1px solid var(--border-soft);color:var(--text-2);
-    font-family:var(--sans);font-size:12.5px;text-decoration:none;max-width:300px;
-  }
-  .chip .cname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
-  .chip .cdl{flex:none;width:15px;height:15px;color:var(--text-3)}
-  .chip .cfile{flex:none;width:16px;height:16px;color:var(--accent)}
-  a.chip{cursor:pointer}
-  a.chip:hover{color:var(--text);border-color:var(--border)}
-  a.chip:hover .cdl{color:var(--accent)}
-  .chip.chip-img{flex-direction:column;align-items:stretch;max-width:264px;padding:7px}
-  .chip.chip-img img{max-width:100%;max-height:230px;border-radius:7px;display:block;object-fit:contain;cursor:zoom-in}
-  .chip.chip-img .cap{display:flex;align-items:center;gap:6px;margin-top:7px;color:var(--text-3)}
-  /* 文件行:点击区 + 独立下载按钮 */
-  .chip.chip-file,.chip.chip-missing{padding:0;overflow:hidden}
-  .chip-open{display:flex;align-items:center;gap:7px;padding:7px 4px 7px 11px;color:var(--text-2);text-decoration:none;flex:1;min-width:0;cursor:pointer}
-  .chip-open:hover{color:var(--text)}
-  .chip-open .cname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .chip .cfile,.chip-open .cfile{flex:none;width:16px;height:16px;color:var(--accent)}
-  .chip-dl{flex:none;display:grid;place-items:center;width:30px;align-self:stretch;color:var(--text-3);
-    border-left:1px solid var(--border-soft);text-decoration:none;cursor:pointer}
-  .chip-dl:hover{color:var(--accent);background:var(--hover)}
-  .chip-dl svg,.chip-img .cdl{width:15px;height:15px}
-  .chip.chip-img .cap .cname{flex:1}
-  .chip.chip-img .chip-dl{border:0;width:24px;align-self:auto;border-radius:6px}
-  .chip-missing{opacity:.55;cursor:default}
-  .chip-missing .cname{padding:7px 11px;display:flex;align-items:center;gap:7px}
-  /* 图片灯箱 */
-  #cca-lightbox{position:fixed;inset:0;z-index:200;display:none;flex-direction:column;align-items:center;justify-content:center;
-    background:rgba(0,0,0,.82);cursor:zoom-out;padding:30px;gap:12px}
-  #cca-lightbox img{max-width:92vw;max-height:82vh;border-radius:8px;box-shadow:0 12px 50px rgba(0,0,0,.5)}
-  #cca-lightbox .lb-cap{color:#eee;font-family:var(--sans);font-size:13px}
-  #cca-lightbox .lb-dl{color:#fff;background:var(--accent);padding:7px 16px;border-radius:8px;font-family:var(--sans);
-    font-size:13px;font-weight:600;text-decoration:none;cursor:pointer}
-  #cca-lightbox .lb-dl:hover{filter:brightness(1.08)}
-
-  /* ---------- 空状态 ---------- */
-  .empty{
-    height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    gap:18px;color:var(--text-3);text-align:center;padding:40px;
-  }
-  .empty .logo{font-family:var(--serif);font-size:44px;color:var(--text-2);font-weight:500}
-  .empty p{font-size:14px;line-height:1.8;max-width:420px}
-  .empty .cta{
-    display:inline-flex;align-items:center;gap:9px;padding:11px 20px;border-radius:10px;
-    background:var(--accent);color:#fff;border:0;cursor:pointer;font-family:var(--sans);
-    font-size:14px;font-weight:600;
-  }
-  .empty .cta:hover{filter:brightness(1.06)}
-  .empty .cta svg{width:18px;height:18px}
-  .empty code{font-family:var(--mono);background:var(--bg-elev);padding:2px 7px;border-radius:5px;color:var(--text-2)}
-
-  /* ---------- toast ---------- */
-  .toast{
-    position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(20px);
-    background:var(--bg-elev);border:1px solid var(--border);color:var(--text);
-    padding:10px 18px;border-radius:10px;font-size:13.5px;opacity:0;pointer-events:none;
-    transition:opacity .2s,transform .2s;box-shadow:0 8px 30px rgba(0,0,0,.3);z-index:50;
-  }
-  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-
-  @media (max-width:760px){
-    .sidebar{width:230px}
-    .thread-inner{padding:16px}
-    .msg.assistant .md{font-size:15.5px}
-  }
-</style>
-</head>
-<body>
-<div class="app">
-  <aside class="sidebar">
-    <div class="brand">
-      <span class="logo">Claude</span>
-      <span class="sp">
-        <span class="ic" id="statsBtn" title="统计：看你和 Claude 的总览数据（说了多少话、思考多久、工具排行等）">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </span>
-        <span class="ic" id="themeBtn" title="切换深色 / 浅色主题">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke-linecap="round"/></svg>
-        </span>
-      </span>
-    </div>
-
-    <div class="side-pad">
-      <button class="load-btn" id="loadBtn" title="选中下载目录里的 ClaudeArchive 文件夹，载入里面所有对话来浏览">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" stroke-linejoin="round"/></svg>
-        选择存档文件夹
-      </button>
-      <div class="btn-hint">选 ClaudeArchive 整个文件夹，载入全部对话</div>
-      <button class="load-btn load-btn-sub" id="loadJsonBtn" title="直接选一份或多份 conversation.json；同一对话的多份会自动合并去重（含分支）">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3v5h5M7 3h7l5 5v11a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" stroke-linejoin="round"/></svg>
-        选 JSON(可多选合并)
-      </button>
-      <div class="btn-hint">只选 JSON 文件；多份同一对话自动合并</div>
-      <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
-      <input type="file" id="jsonInput" accept=".json,application/json" multiple hidden>
-    </div>
-
-    <div class="search">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4" stroke-linecap="round"/></svg>
-      <input id="searchInput" placeholder="搜索对话…" autocomplete="off" title="按对话标题筛选下方列表">
-    </div>
-
-    <nav class="convlist" id="convList">
-      <div class="side-empty">点上方「选择存档文件夹」<br>载入你的 ClaudeArchive</div>
-    </nav>
-
-    <div class="side-foot"><span class="dot"></span><span id="count">尚未载入</span></div>
-  </aside>
-
-  <main class="main">
-    <header class="topbar">
-      <span class="top-title" id="topTitle"></span>
-      <span class="top-model" id="topModel"></span>
-      <span class="top-merged" id="topMerged" style="display:none"></span>
-      <div class="top-actions">
-        <button class="top-btn" id="reloadBtn" title="重新选择 ClaudeArchive 文件夹（换一个存档来看）">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" stroke-linejoin="round"/></svg>
-          更换存档
-        </button>
-      </div>
-    </header>
-    <div class="thread" id="thread"></div>
-  </main>
-</div>
-
-<div class="toast" id="toast"></div>
-
-<div id="statsModal" class="stats-modal" style="display:none">
-  <div class="stats-bd"></div>
-  <div class="stats-card">
-    <div class="stats-head"><span>你与 Claude 的存档统计</span><span class="stats-close" id="statsClose">✕</span></div>
-    <div class="stats-body" id="statsBody"></div>
-  </div>
-</div>
-
-<script>
 'use strict';
 const $ = (s,r=document)=>r.querySelector(s);
 const ce = (t,c,h)=>{const e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;};
@@ -674,13 +179,33 @@ function toolResultText(b){
   return JSON.stringify(c==null?b:c,null,2);
 }
 function sparkSvg(){ return '<svg class="spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4" stroke-linecap="round"/></svg>'; }
+/* 时间线图标集(18px 灰描边,贴官方) */
+function clockSvg(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="8.4"/><path d="M12 7.6V12l3.1 1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>'; }
 function toolIconSvg(name){
   const n=String(name||'').toLowerCase();
-  if(/search|web|google|fetch|browse|http/.test(n)) return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4" stroke-linecap="round"/></svg>';
-  if(/file|create|write|str_replace|edit|view|read|present/.test(n)) return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3v5h5M7 3h7l5 5v11a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" stroke-linejoin="round"/></svg>';
-  if(/bash|command|exec|terminal|run|code|shell|python|node/.test(n)) return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 7l4 5-4 5M12 17h7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-  if(/image|photo|art|draw|render|visual|chart|diagram/.test(n)) return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-7 7" stroke-linejoin="round"/></svg>';
-  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 2l2.5 5.3 5.8.8-4.2 4.1 1 5.8L12 20.2 6.9 23l1-5.8L3.7 13l5.8-.8z" stroke-linejoin="round"/></svg>';
+  // 编辑类:铅笔
+  if(/str_replace|create_file|^edit|write_file/.test(n)) return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4.5 19.5l1-3.8L16.2 5a2 2 0 0 1 2.8 2.8L8.3 18.5l-3.8 1z" stroke-linejoin="round"/><path d="M14.5 6.7l2.8 2.8"/></svg>';
+  // 读/看/产物:文件
+  if(/view|read|file|present|cat\b/.test(n)) return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13.5 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7.5z" stroke-linejoin="round"/><path d="M13.5 3v4.5H18" stroke-linejoin="round"/></svg>';
+  // 终端/脚本
+  if(/bash|command|exec|terminal|run|shell|script|python|node/.test(n)) return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.2" y="4.5" width="17.6" height="15" rx="2.6"/><path d="M7.2 9.2l3 2.8-3 2.8M12.8 15h4.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  // 搜索/抓取
+  if(/search|web|google|fetch|browse|http/.test(n)) return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="6.6"/><path d="M20.4 20.4L16 16" stroke-linecap="round"/></svg>';
+  // 图像/可视化
+  if(/image|photo|art|draw|render|visual|chart|diagram/.test(n)) return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="4.5" width="17" height="15" rx="2.4"/><circle cx="9" cy="10" r="1.8"/><path d="M20 16.5l-4.6-4.6L8 19.4" stroke-linejoin="round"/></svg>';
+  // 兜底:方块
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4.5" y="4.5" width="15" height="15" rx="3"/></svg>';
+}
+function baseNameOf(p){ const s=String(p==null?'':p); const i=Math.max(s.lastIndexOf('/'),s.lastIndexOf('\\')); return i>=0?s.slice(i+1):s; }
+// 编辑徽章:文件名 + +新增行 -删除行(create_file 全为新增;str_replace 按 new/old 行数)
+function editBadge(use){
+  if(!use||!use.input) return null;
+  const n=String(use.name||'').toLowerCase(), inp=use.input;
+  const lines=s=>{ s=String(s==null?'':s); return s===''?0:s.split('\n').length; };
+  if(n==='create_file'&&typeof inp.file_text==='string') return { file:baseNameOf(inp.path), add:lines(inp.file_text), del:0 };
+  if(n==='str_replace') return { file:baseNameOf(inp.path), add:lines(inp.new_str), del:lines(inp.old_str) };
+  if(/bash|script|command|shell/.test(n)) return { script:true };
+  return null;
 }
 function thinkBlock(text){
   const d=ce('details','think');
@@ -739,39 +264,55 @@ function thinkInfo(block){
   return { tags, text, cutOff: !!(block && block.cut_off) };
 }
 function stepThink(block){
-  const { tags, text } = thinkInfo(block);
-  const label = tags.length ? tags[tags.length-1] : '思考';
-  const d=ce('details','step s-think');
-  const s=ce('summary');
-  s.innerHTML='<span class="node">'+sparkSvg()+'</span>'+
-    '<span class="slabel">'+esc(label)+'</span>'+
-    '<span class="schev"></span>';
-  d.appendChild(s);
-  const body=ce('div','step-body');
-  // 多个阶段摘要:仅当数量适中(2-3 条)时列出;过多是流式滚动标签,正文已足够,不堆叠
-  if(tags.length>1 && tags.length<=3){
-    const ul=ce('div','think-tags');
-    tags.forEach(t=>{ const it=ce('div','think-tag'); it.innerHTML='<span class="dot"></span>'+esc(t); ul.appendChild(it); });
-    body.appendChild(ul);
+  const { text } = thinkInfo(block);
+  // 像官方:思考正文直接平铺在时间线上(时钟图标),不再藏进二级折叠
+  const d=ce('div','step s-think');
+  d.innerHTML='<span class="node">'+clockSvg()+'</span>';
+  const wrap=ce('div','tk-wrap');
+  const tk=ce('div','tk-text'); tk.innerHTML=mdToHtml(text||'');
+  wrap.appendChild(tk);
+  // 长思考:超过约 12 行时渐隐 + 「显示更多」
+  if((text||'').length>700 || (text||'').split('\n').length>14){
+    wrap.classList.add('clamp');
+    const btn=ce('button','showmore'); btn.type='button'; btn.textContent='显示更多';
+    btn.addEventListener('click',()=>{ const c=wrap.classList.toggle('clamp'); btn.textContent=c?'显示更多':'收起'; });
+    d.appendChild(wrap); d.appendChild(btn);
+    return d;
   }
-  const tk=ce('div','step-think'); tk.innerHTML=mdToHtml(text||''); body.appendChild(tk);
-  d.appendChild(body);
+  d.appendChild(wrap);
   return d;
 }
 function stepTool(use, result){
   const name=(use&&use.name)||(result&&result.name)||'工具';
   const isErr=!!(result&&result.is_error);
-  // 标题:优先用 message(Claude 思考链每步的动作描述,如"创建扩展项目目录"),回退工具名
+  // 标题:优先 message(官方思考链每步的动作描述);占位/缺失时给中文兜底
   let title=(use&&use.message)||(result&&result.message)||'';
-  // 去掉机械的 "Generating xxx..." / "Generated xxx" 这类占位,改回工具名更干净
-  if(!title || /^Generat(ing|ed)\b/i.test(title) || title===name) title='';
+  if(!title || /^Generat(ing|ed)\b/i.test(title) || title===name){
+    const n=String(name).toLowerCase();
+    const p=use&&use.input&&(use.input.path||use.input.file_path||use.input.url)||'';
+    if(/str_replace/.test(n)) title='编辑 '+baseNameOf(p);
+    else if(/create_file/.test(n)) title='创建 '+baseNameOf(p);
+    else if(/view|read/.test(n)) title=p?'查看 '+baseNameOf(p):'查看文件';
+    else if(/bash|shell|command/.test(n)) title='运行命令';
+    else if(/web_search/.test(n)) title='搜索网页';
+    else if(/web_fetch/.test(n)) title='抓取网页';
+    else if(/present/.test(n)) title='输出文件';
+    else title='';
+  }
   const d=ce('details','step s-tool'+(isErr?' s-err':''));
   const s=ce('summary');
-  const labelHtml = title
-    ? esc(title)+' <span class="tname">'+esc(name)+'</span>'
-    : '<b>'+esc(name)+'</b>';
+  // 徽章:编辑 → 文件名 + +增 -删;脚本 → Script
+  const b=editBadge(use);
+  let badges='';
+  if(b){
+    if(b.script) badges='<div class="t-badges"><span class="t-badge">Script</span></div>';
+    else badges='<div class="t-badges"><span class="t-badge">'+esc(b.file||'')+'</span>'
+      +(b.add>0?'<span class="t-add">+'+b.add+'</span>':'')
+      +(b.del>0?'<span class="t-del">-'+b.del+'</span>':'')+'</div>';
+  }
+  const titleHtml=title?esc(title):'<b>'+esc(name)+'</b>';
   s.innerHTML='<span class="node">'+toolIconSvg(name)+'</span>'+
-    '<span class="slabel">'+labelHtml+'</span><span class="schev"></span>';
+    '<div class="t-main"><div class="t-title">'+titleHtml+'</div>'+badges+'</div>';
   d.appendChild(s);
   const body=ce('div','step-body');
   if(use){ body.appendChild(lbl('请求参数')); body.appendChild(toolInputNode(use)); }
@@ -813,16 +354,16 @@ function processTimeline(steps){
   })();
   let head;
   if(labels.length){
-    head = esc(labels[labels.length-1]) + (labels.length>1 ? ' <span class="pcount">+'+(labels.length-1)+' 步</span>' : '');
+    head = esc(labels[labels.length-1]);
   } else if(firstToolMsg){
-    head = esc(firstToolMsg) + (nTool>1 ? ' <span class="pcount">· 共 '+nTool+' 步</span>' : '');
+    head = esc(firstToolMsg);
   } else {
-    head = '思考' + (nTool ? ' <span class="pcount">· 调用 '+nTool+' 次工具</span>' : '');
+    head = '思考过程';
   }
 
   const d=ce('details','process');
   const s=ce('summary');
-  s.innerHTML=sparkSvg()+'<span class="ptitle">'+head+'</span><span class="chev"></span>';
+  s.innerHTML='<span class="ptitle">'+head+'</span><span class="chev"></span>';
   d.appendChild(s);
   const wrap=ce('div','steps');
   steps.forEach(st=>{
@@ -1201,7 +742,10 @@ function renderThread(opts){
   thread.appendChild(wrap);
   // 定位:切换分支时滚到该分支消息;否则(打开对话)滚到最新一条(底部),与 Claude 网页一致
   requestAnimationFrame(()=>{
-    if(focusEl){ focusEl.scrollIntoView({block:'center'}); }
+    if(focusEl){
+      focusEl.scrollIntoView({block:'center'});
+      if(opts && opts.flash){ focusEl.classList.add('flash'); setTimeout(()=>focusEl.classList.remove('flash'),1900); }
+    }
     else { thread.scrollTop = thread.scrollHeight; }
   });
 }
@@ -1322,30 +866,87 @@ function toast(msg){
   clearTimeout(_tt); _tt=setTimeout(()=>t.classList.remove('show'),2400);
 }
 
-/* ---------- 选择文件夹:优先 File System Access API(在 chrome-extension:// 页里可靠),
-   不可用时回退到 webkitdirectory input ---------- */
+/* ---------- 绑定到插件(直写模式):句柄存 IndexedDB,SW 直接读写磁盘 ---------- */
+const IDB_NAME='cca', IDB_STORE='handles';
+function idbOpen(){ return new Promise((res,rej)=>{ const r=indexedDB.open(IDB_NAME,1); r.onupgradeneeded=()=>r.result.createObjectStore(IDB_STORE); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+async function idbSet(key,val){ const db=await idbOpen(); return new Promise((res,rej)=>{ const t=db.transaction(IDB_STORE,'readwrite').objectStore(IDB_STORE).put(val,key); t.onsuccess=()=>res(true); t.onerror=()=>rej(t.error); }); }
+async function idbGet(key){ const db=await idbOpen(); return new Promise((res,rej)=>{ const t=db.transaction(IDB_STORE).objectStore(IDB_STORE).get(key); t.onsuccess=()=>res(t.result); t.onerror=()=>rej(t.error); }); }
+const inExtension = !!(window.chrome && chrome.runtime && chrome.runtime.id);
+
+async function bindFolder(){
+  if(!window.showDirectoryPicker){ toast('当前环境不支持文件夹绑定'); return; }
+  let handle;
+  try{
+    handle = await window.showDirectoryPicker({ id:'claude-archive-root', startIn:'downloads', mode:'readwrite' });
+  }catch(err){ if(err && err.name==='AbortError') return; toast('授权失败:'+(err&&err.message||err)); return; }
+  try{
+    await idbSet('root', handle);
+  }catch(e){ toast('保存绑定失败:'+(e&&e.message||e)); return; }
+  // 通知插件后台校验 + 扫描重建索引
+  let scanMsg='';
+  if(inExtension){
+    try{
+      const r = await chrome.runtime.sendMessage({ kind:'viewer:bound' });
+      if(r && r.ok && r.scan && r.scan.ok) scanMsg = ` · 已从文件夹恢复 ${r.scan.found||0} 个对话索引`;
+      else if(r && !r.ok) scanMsg = ' · 插件端未生效(状态:'+(r.status||'?')+')';
+    }catch(e){}
+  }
+  toast('已绑定「'+(handle.name||'文件夹')+'」直写模式'+scanMsg);
+  // 顺便把该文件夹载入查看器浏览
+  try{
+    const files = await readDirRecursive(handle, handle.name);
+    await handleFiles(files);
+  }catch(e){}
+}
+
 async function pickFolder(){
-  // 优先用 showDirectoryPicker(Chrome/Edge 支持;扩展页里比隐藏 input 更可靠)
+  // 1) 已绑定/选过 → 直接复用句柄(最多一次"允许"授权点击),不再弹文件夹选择器
+  if(await loadFromBound(true)) return;
+  // 2) 弹选择器:默认从「下载」目录开;Chrome 会按 id 记住上次位置
   if(window.showDirectoryPicker){
     let dirHandle;
     try{
-      dirHandle = await window.showDirectoryPicker({ id:'claude-archive', mode:'read' });
+      dirHandle = await window.showDirectoryPicker({ id:'claude-archive-root', startIn:'downloads', mode: inExtension?'readwrite':'read' });
     }catch(err){
       if(err && err.name==='AbortError') return; // 用户取消
-      // 某些环境抛 SecurityError/NotAllowedError → 回退 input
-      $('#folderInput').click(); return;
+      $('#folderInput').click(); return;          // 个别环境不支持 → 回退 input
     }
+    try{
+      await idbSet('root', dirHandle);            // 选一次就存下来(下次直接复用)
+      if(inExtension){ try{ await chrome.runtime.sendMessage({ kind:'viewer:bound' }); }catch(e){} }
+    }catch(e){}
     try{
       toast('正在读取文件夹…');
       const files = await readDirRecursive(dirHandle, dirHandle.name);
       await handleFiles(files);
-    }catch(err){
-      toast('读取文件夹失败:'+(err && err.message || err));
-    }
+    }catch(err){ toast('读取文件夹失败:'+(err && err.message || err)); }
     return;
   }
-  // 回退:传统目录选择 input
   $('#folderInput').click();
+}
+// 句柄权限:granted 直接过;prompt 时在页面里请求一次(有用户手势)
+async function ensureHandlePerm(handle, mode){
+  try{
+    let p = await handle.queryPermission({ mode });
+    if(p==='granted') return true;
+    p = await handle.requestPermission({ mode });
+    return p==='granted';
+  }catch(e){ return false; }
+}
+// 复用 IndexedDB 里已存的根句柄读取存档;silent=true 时无句柄不提示
+async function loadFromBound(silent){
+  let handle=null;
+  try{ handle = await idbGet('root'); }catch(e){}
+  if(!handle){ if(!silent) toast('还没有选择/绑定过存档文件夹'); return false; }
+  const ok = await ensureHandlePerm(handle, inExtension?'readwrite':'read');
+  if(!ok){ if(!silent) toast('文件夹授权未通过,请重新选择'); return false; }
+  try{
+    toast('正在读取「'+(handle.name||'存档')+'」…');
+    const files = await readDirRecursive(handle, handle.name);
+    await handleFiles(files);
+    if(inExtension){ try{ chrome.runtime.sendMessage({ kind:'viewer:bound' }); }catch(e){} }
+    return true;
+  }catch(e){ if(!silent) toast('读取失败:'+(e&&e.message||e)); return false; }
 }
 // 递归读取目录句柄 → File[](每个带 webkitRelativePath,兼容 handleFiles)
 async function readDirRecursive(dirHandle, prefix){
@@ -1373,11 +974,151 @@ async function readDirRecursive(dirHandle, prefix){
 /* ---------- 事件 ---------- */
 $('#themeBtn').addEventListener('click',()=>applyTheme(document.documentElement.dataset.theme==='dark'?'light':'dark'));
 $('#loadBtn').addEventListener('click',pickFolder);
+$('#refreshBtn').addEventListener('click',()=>loadFromBound(false));
+// 扩展环境:打开查看器即自动载入已绑定的存档(回调内判断,避免 const 提前引用)
+setTimeout(()=>{ try{ if(window.chrome&&chrome.runtime&&chrome.runtime.id&&!state.convs.length) loadFromBound(true); }catch(e){} }, 60);
 $('#loadJsonBtn').addEventListener('click',()=>$('#jsonInput').click());
 $('#reloadBtn').addEventListener('click',pickFolder);
 $('#folderInput').addEventListener('change',e=>handleFiles(e.target.files));
 $('#jsonInput').addEventListener('change',e=>handleFiles(e.target.files));
 $('#searchInput').addEventListener('input',e=>{ state.query=e.target.value; renderSidebar(); });
+
+/* ---------- 全局搜索:选范围 → 关键词高亮列出 → 点击跳转 → 可返回结果继续 ---------- */
+state.gs={ q:'', scopes:{user:true,ai:true,think:true,tool:true}, range:'all', results:[] };
+const SCOPE_ZH={user:'用户',ai:'AI 回答',think:'思考',tool:'工具·产物'};
+function joinTexts(arr){ return arr.filter(Boolean).join('\n'); }
+// 按范围抽取一条消息的可搜文本
+function searchFieldsOf(m){
+  const out={user:'',ai:'',think:'',tool:''};
+  const texts=[],thinks=[],tools=[];
+  for(const b of (Array.isArray(m.content)?m.content:[])){
+    if(!b) continue;
+    if(b.type==='text'&&b.text) texts.push(b.text);
+    else if(b.type==='thinking'){
+      if(b.thinking) thinks.push(b.thinking);
+      if(Array.isArray(b.summaries)) for(const s of b.summaries) if(s&&s.summary) thinks.push(s.summary);
+    }
+    else if(b.type==='tool_use'){
+      if(b.message) tools.push(b.message);
+      if(b.name) tools.push(b.name);
+      const i=b.input;
+      if(i&&typeof i==='object'){ for(const k of ['command','path','file_path','url','query','description','new_str','old_str','file_text']) if(typeof i[k]==='string') tools.push(i[k]); }
+    }
+    else if(b.type==='tool_result'){
+      if(b.message) tools.push(b.message);
+      if(Array.isArray(b.content)) for(const it of b.content){ if(it&&it.type==='local_resource'){ if(it.name)tools.push(it.name); if(it.file_path)tools.push(it.file_path); } }
+    }
+  }
+  for(const f of (m.files||[])) if(f&&f.file_name) tools.push(f.file_name);
+  for(const a of (m.attachments||[])){ if(a&&a.file_name) tools.push(a.file_name); if(a&&typeof a.extracted_content==='string') tools.push(a.extracted_content); }
+  if(m.sender==='human') out.user=joinTexts(texts); else out.ai=joinTexts(texts);
+  out.think=joinTexts(thinks); out.tool=joinTexts(tools);
+  return out;
+}
+function makeSnippet(txt,idx,q){
+  const R=64, start=Math.max(0,idx-44), end=Math.min(txt.length, idx+q.length+R);
+  let s=txt.slice(start,end).replace(/\s+/g,' ');
+  return (start>0?'…':'')+hlite(s,q)+(end<txt.length?'…':'');
+}
+function runGlobalSearch(){
+  const q=state.gs.q.trim();
+  const box=$('#sRes'), foot=$('#sFoot');
+  if(!q){ box.innerHTML='<div class="sres-empty">输入关键词开始搜索</div>'; foot.textContent=''; state.gs.results=[]; return; }
+  const ql=q.toLowerCase();
+  const fromV=$('#sFrom').value, toV=$('#sTo').value;
+  const from=fromV?new Date(fromV+'T00:00:00'):null;
+  const to=toV?new Date(toV+'T23:59:59.999'):null;
+  const convs = state.gs.range==='cur'
+    ? (state.byId.get(state.activeId)?[state.byId.get(state.activeId)]:[])
+    : state.convs;
+  const res=[]; const CAP=400;
+  outer:
+  for(const conv of convs){
+    if(!conv||!conv.data) continue;
+    for(const m of (conv.data.chat_messages||[])){
+      if(from||to){
+        const t=m.created_at?new Date(m.created_at):null;
+        if(t&&!isNaN(t)){ if(from&&t<from) continue; if(to&&t>to) continue; }
+      }
+      const f=searchFieldsOf(m);
+      for(const k of ['user','ai','think','tool']){
+        if(!state.gs.scopes[k]) continue;
+        const txt=f[k]; if(!txt) continue;
+        const idx=txt.toLowerCase().indexOf(ql); if(idx<0) continue;
+        res.push({convId:conv.uuid, msgUuid:m.uuid, scope:k, time:m.created_at||'', snippet:makeSnippet(txt,idx,q)});
+        if(res.length>=CAP) break outer;
+      }
+    }
+  }
+  state.gs.results=res;
+  renderSearchResults();
+}
+function renderSearchResults(){
+  const box=$('#sRes'), foot=$('#sFoot');
+  const res=state.gs.results;
+  if(!res.length){ box.innerHTML='<div class="sres-empty">没有匹配结果。试试换个词,或放宽范围/时间。</div>'; foot.textContent='0 条结果'; return; }
+  box.innerHTML='';
+  for(const h of res){
+    const conv=state.byId.get(h.convId);
+    const it=ce('button','sitem');
+    it.innerHTML='<div class="si-top"><span class="si-conv">'+esc(conv&&conv.name||'未命名对话')+'</span>'+
+      '<span class="si-scope">'+SCOPE_ZH[h.scope]+'</span>'+
+      '<span class="si-time">'+(h.time?esc(fmtClock(h.time)):'')+'</span></div>'+
+      '<div class="si-snip">'+h.snippet+'</div>';
+    it.addEventListener('click',()=>jumpToHit(h));
+    box.appendChild(it);
+  }
+  foot.textContent=res.length+(res.length>=400?'+':'')+' 条结果 · 点击任意条跳转,跳转后可点底部「返回搜索结果」继续';
+}
+function jumpToHit(h){
+  const conv=state.byId.get(h.convId); if(!conv) return;
+  closeSearch(true);
+  state.activeId=conv.uuid;
+  // 命中消息可能在非活动分支:把叶子切到该消息所在分支
+  const onPath=activePath(conv.data, conv._leaf).some(m=>m.uuid===h.msgUuid);
+  if(!onPath) conv._leaf=deepestLeaf(conv.data, h.msgUuid);
+  renderSidebar();
+  renderThread({focusUuid:h.msgUuid, flash:true});
+  $('#backToSearch').style.display='';
+}
+function openSearch(){
+  $('#searchModal').style.display='flex';
+  $('#backToSearch').style.display='none';
+  setTimeout(()=>$('#gq').focus(),30);
+}
+function closeSearch(keepBack){
+  $('#searchModal').style.display='none';
+  if(!keepBack) $('#backToSearch').style.display='none';
+}
+let _gsT=null;
+$('#gSearchBtn').addEventListener('click',openSearch);
+$('#gClose').addEventListener('click',()=>closeSearch(false));
+document.querySelector('#searchModal .smodal-bd').addEventListener('click',()=>closeSearch(state.gs.results.length>0));
+$('#gq').addEventListener('input',e=>{ state.gs.q=e.target.value; clearTimeout(_gsT); _gsT=setTimeout(runGlobalSearch,260); });
+$('#gq').addEventListener('keydown',e=>{ if(e.key==='Enter'){ clearTimeout(_gsT); state.gs.q=e.target.value; runGlobalSearch(); } });
+document.querySelectorAll('#searchModal .schip').forEach(ch=>ch.addEventListener('click',()=>{
+  const k=ch.dataset.scope; state.gs.scopes[k]=!state.gs.scopes[k]; ch.classList.toggle('on',state.gs.scopes[k]); runGlobalSearch();
+}));
+document.querySelectorAll('#searchModal .sseg').forEach(sg=>sg.addEventListener('click',()=>{
+  state.gs.range=sg.dataset.range;
+  document.querySelectorAll('#searchModal .sseg').forEach(x=>x.classList.toggle('on',x===sg));
+  runGlobalSearch();
+}));
+$('#sFrom').addEventListener('change',runGlobalSearch);
+$('#sTo').addEventListener('change',runGlobalSearch);
+$('#backToSearch').addEventListener('click',()=>{ $('#searchModal').style.display='flex'; $('#backToSearch').style.display='none'; });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape' && $('#searchModal').style.display!=='none') closeSearch(state.gs.results.length>0); });
+// 扩展环境:显示"绑定到插件"按钮;带 #bind 打开时给出醒目引导
+if(inExtension && window.showDirectoryPicker){
+  $('#bindBtn').style.display='';
+  $('#bindHint').style.display='';
+  $('#bindBtn').addEventListener('click',bindFolder);
+  if(location.hash==='#bind'){
+    toast('请点击左侧「绑定到插件(直写模式)」选择你的 ClaudeArchive 文件夹');
+    $('#bindBtn').style.outline='2px solid var(--accent)';
+    setTimeout(()=>{ $('#bindBtn').style.outline=''; }, 6000);
+  }
+}
 
 // 代码块"一键复制"(事件委托)
 document.addEventListener('click',(e)=>{
@@ -1465,6 +1206,3 @@ $('#statsClose').addEventListener('click',()=>$('#statsModal').style.display='no
 $('#statsModal').querySelector('.stats-bd').addEventListener('click',()=>$('#statsModal').style.display='none');
 
 renderThread();
-</script>
-</body>
-</html>

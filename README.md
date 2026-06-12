@@ -5,7 +5,7 @@
 **把 Claude.ai / 镜像站的对话完整、本地化地存下来 —— 含思考链、工具调用、上传与生成的文件,并用「仿 Claude 网页版」的本地查看器离线浏览。**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-d97757.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.9.0-d97757.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.9.1-d97757.svg)](CHANGELOG.md)
 [![Manifest V3](https://img.shields.io/badge/Chrome%2FEdge-MV3-4285F4.svg)](https://developer.chrome.com/docs/extensions/mv3/intro/)
 [![No Build](https://img.shields.io/badge/build-none-success.svg)](#)
 [![Local Only](https://img.shields.io/badge/privacy-100%25%20local-2ea44f.svg)](#隐私)
@@ -85,7 +85,7 @@ ClaudeArchive/
         <图片>.webp / <上传文件>
 ```
 
-文件按 **SHA-256 内容指纹**版本化：同一文件多轮出现但内容只变 N 次，仅保存 N 个版本，不产生重复副本。详见 [CHANGELOG](CHANGELOG.md) 与 `ORGANIZING_GUIDE.md`。
+文件按 **SHA-256 内容指纹**版本化：同一文件多轮出现但内容只变 N 次，仅保存 N 个版本，不产生重复副本。详见 [CHANGELOG](CHANGELOG.md) 与 `tools/ORGANIZING_GUIDE.md`。
 
 ---
 
@@ -106,9 +106,9 @@ ClaudeArchive/
 
 ## 文档
 
-- 🚀 [新手使用手册 docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)（**分享给别人看这份**）
-- 🗂️ [快速上手卡片 docs/quick-start-card.html](docs/quick-start-card.html)（一页图文，可打印）
-- [详细使用指南 docs/USAGE.md](docs/USAGE.md)
+- 🚀 [新手使用手册 guides/GETTING_STARTED.md](guides/GETTING_STARTED.md)（**分享给别人看这份**）
+- 🗂️ [快速上手卡片 guides/quick-start-card.html](guides/quick-start-card.html)（一页图文，可打印）
+- [详细使用指南 guides/USAGE.md](guides/USAGE.md)
 - [更新日志 CHANGELOG.md](CHANGELOG.md)
 - [贡献指南 CONTRIBUTING.md](CONTRIBUTING.md)
 - [安全策略 SECURITY.md](SECURITY.md)

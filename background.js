@@ -297,18 +297,18 @@ function alreadyDownloaded(relPath) {
     } catch (e) { resolve(false); }
   });
 }
-function downloadDataUrl(url, path) {
+function downloadDataUrl(url, path, overwrite = false) {
   return new Promise((resolve) => {
     try {
-      // conflictAction:'uniquify' 兜底——万一仍撞名,Chrome 静默加 (1),绝不弹"另存为/替换"窗口
+      // 正本(conversation.json/md、history、_index 等)必须覆盖自身;
+      // 资产由 decideName 保证全新名,'uniquify' 仅作最后兜底,绝不弹系统窗口
       chrome.downloads.download(
-        { url, filename: path, conflictAction: 'uniquify', saveAs: false },
+        { url, filename: path, conflictAction: overwrite ? 'overwrite' : 'uniquify', saveAs: false },
         (id) => {
           if (chrome.runtime.lastError || id === undefined) {
             resolve({ ok: false, error: chrome.runtime.lastError?.message || 'download failed' });
           } else {
             resolve({ ok: true, id });
-            // 静默:下载完成后从下载记录/下载栏移除该条(文件仍保留在磁盘)
             maybeEraseDownload(id);
           }
         }
@@ -353,23 +353,23 @@ function b64ToU8(b64) {
   return u;
 }
 // 统一落盘:优先直写绑定文件夹(零下载记录);未绑定/失败 → 退回浏览器下载(静默)
-async function saveText(path, text, mime = 'text/plain') {
+async function saveText(path, text, mime = 'text/plain', overwrite = false) {
   const { handle } = await getRootHandle();
   if (handle) {
     try { await writeViaHandle(handle, path, new Blob([String(text == null ? '' : text)], { type: mime })); return { ok: true, direct: true }; }
     catch (e) { logLine('write', '直写失败,退回下载:' + (e && e.message || e), { path }); }
   }
   const url = await toDataUrl({ kind: 'text', text, mime });
-  return downloadDataUrl(url, path);
+  return downloadDataUrl(url, path, overwrite);
 }
-async function saveB64(path, b64, mime = 'application/octet-stream') {
+async function saveB64(path, b64, mime = 'application/octet-stream', overwrite = false) {
   const { handle } = await getRootHandle();
   if (handle) {
     try { await writeViaHandle(handle, path, new Blob([b64ToU8(b64)], { type: mime })); return { ok: true, direct: true }; }
     catch (e) { logLine('write', '直写失败,退回下载:' + (e && e.message || e), { path }); }
   }
   const url = await toDataUrl({ kind: 'b64', b64, mime });
-  return downloadDataUrl(url, path);
+  return downloadDataUrl(url, path, overwrite);
 }
 
 // ---------------- 找一个 claude.ai 标签页(代理带凭证抓取) ----------------
@@ -438,7 +438,28 @@ async function archiveById(convId, { force = true } = {}) {
 }
 
 
-async function archive(convId, { force = false } = {}) {
+// ---------------- 归档(同一对话严格串行,根治并发竞态导致的重复下载) ----------------
+const _archLocks = new Map(); // convId -> { running:Promise, pending:{force}|null }
+async function archive(convId, opts = {}) {
+  const cur = _archLocks.get(convId);
+  if (cur) {
+    // 已在跑:合并为"跑完后再补跑一次"(force 取并集),多次触发只补一次
+    cur.pending = { force: !!(cur.pending && cur.pending.force) || !!opts.force };
+    logLine('archive', '已有归档在进行,本次请求已合并排队', { convId });
+    return cur.running;
+  }
+  const slot = { pending: null, running: null };
+  slot.running = (async () => {
+    let r = await _archiveOnce(convId, opts);
+    while (slot.pending) { const p = slot.pending; slot.pending = null; r = await _archiveOnce(convId, p); }
+    _archLocks.delete(convId);
+    return r;
+  })();
+  _archLocks.set(convId, slot);
+  return slot.running;
+}
+
+async function _archiveOnce(convId, { force = false } = {}) {
   const st = state.get(convId);
   if (!st || !st.data) { logLine('archive', `跳过:内存中没有「${convId}」的数据(可能未捕获,试着刷新该对话页面)`, { convId }); return { ok: false, error: 'no state' }; }
   const settings = await getSettings();
@@ -460,8 +481,8 @@ async function archive(convId, { force = false } = {}) {
   const json = buildJson(conv);
 
   // canonical:始终保持最新(覆盖)
-  const r1 = await saveText(`${base}/conversation.md`, md, 'text/markdown');
-  const r2 = await saveText(`${base}/conversation.json`, json, 'application/json');
+  const r1 = await saveText(`${base}/conversation.md`, md, 'text/markdown', true);
+  const r2 = await saveText(`${base}/conversation.json`, json, 'application/json', true);
 
   // 历史快照:把这次的 JSON 另存一份带时间戳到 history/,内容变化才存(便于多版本合并去重)
   if (settings.keepHistory !== false) {
@@ -472,7 +493,7 @@ async function archive(convId, { force = false } = {}) {
       if (lastSig !== curSig) {
         const ts = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
         const upd = (st.data?.updated_at || '').replace(/[:.]/g, '-').slice(0, 19) || ts;
-        await saveText(`${base}/history/conversation_${upd}.json`, json, 'application/json');
+        await saveText(`${base}/history/conversation_${upd}.json`, json, 'application/json', true);
         await chrome.storage.local.set({ [histKey]: curSig });
       }
     } catch {}
@@ -567,6 +588,7 @@ async function archive(convId, { force = false } = {}) {
       savedRec['gen:' + (hash || (convDir + '/' + name))] = convDir + '/' + name;
     };
 
+    let skipCount = 0;
     if (tabId != null) {
       const assets = collectAssets(st.data, st.orgId, convId);
       for (const a of assets) {
@@ -574,10 +596,11 @@ async function archive(convId, { force = false } = {}) {
         if (!resp || !resp.ok || !resp.b64) continue;
         await pace(Math.floor(resp.b64.length * 0.75));      // 限速配速(按真实字节)
         const hash = await sha256OfB64(resp.b64);
-        if (hash && seenHashes.has(hash)) continue;          // 规则3:同哈希不存
+        if (!hash) logLine('write', '警告:内容哈希计算失败,该文件将无法判重', { name: a.name || a.path });
+        if (hash && seenHashes.has(hash)) { skipCount++; continue; } // 规则3:同哈希不存
         const baseName = pickFileName(resp.cd, a.name, a.path, resp.ct);
         const finalName = decideName(baseName, hash);
-        if (!finalName) continue;
+        if (!finalName) { skipCount++; continue; }
         const rel = `${convDir}/${finalName}`;
         const dl = await saveB64(`${base}/${rel}`, resp.b64, (resp.ct || '').split(';')[0]);
         if (dl.ok) { fileCount++; remember(baseName, hash, finalName); }
@@ -589,17 +612,18 @@ async function archive(convId, { force = false } = {}) {
       for (const a of (m.attachments || [])) {
         if (a && typeof a.extracted_content === 'string' && a.extracted_content.trim()) {
           const hash = await sha256OfText(a.extracted_content);
-          if (hash && seenHashes.has(hash)) continue;
+          if (hash && seenHashes.has(hash)) { skipCount++; continue; }
           const stem = safeName(String(a.file_name || 'attachment').replace(/\.[^.]+$/, ''), 70) || 'attachment';
           const baseName = stem + '.txt';
           const finalName = decideName(baseName, hash);
-          if (!finalName) continue;
+          if (!finalName) { skipCount++; continue; }
           const rel = `${convDir}/${finalName}`;
           const dl = await saveText(`${base}/${rel}`, a.extracted_content, 'text/plain');
           if (dl.ok) { fileCount++; remember(baseName, hash, finalName); }
         }
       }
     }
+    if (skipCount) logLine('archive', `判重跳过 ${skipCount} 个已存文件(哈希一致)`, { convId });
 
     await chrome.storage.local.set({ [savedKey]: savedRec, [verKey]: verMap });
 
@@ -639,7 +663,7 @@ async function archive(convId, { force = false } = {}) {
     setTimeout(() => chrome.action.setBadgeText({ text: '' }), 1800);
   } catch {}
 
-  logLine('archive', `已保存「${st.data?.name || convId}」· ${fileCount} 个文件`, { convId, files: fileCount });
+  logLine('archive', `已保存「${st.data?.name || convId}」· 新 ${fileCount} 个文件`, { convId, files: fileCount });
   return { ok: r1.ok || r2.ok, files: fileCount, dir };
 }
 
@@ -841,7 +865,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       const { index } = await chrome.storage.local.get('index');
       const json = JSON.stringify(index || {}, null, 2);
-      const r = await saveText(`${ROOT}/_index.json`, json, 'application/json');
+      const r = await saveText(`${ROOT}/_index.json`, json, 'application/json', true);
       sendResponse(r);
     })();
     return true;
@@ -857,9 +881,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const ex = l.extra != null ? '  ' + JSON.stringify(l.extra) : '';
         return `[${ts}] [${l.stage}] ${l.msg}${ex}`;
       }).join('\n');
-      const r = await saveText(`${ROOT}/_runlog.txt`, text, 'text/plain');
+      const r = await saveText(`${ROOT}/_runlog.txt`, text, 'text/plain', true);
       sendResponse(r.ok ? { ok: true, count: lines.length } : r);
     })();
     return true;
   }
 });
+
+// —— 测试钩子(仅供自动化测试 import 使用;Chrome 运行时不调用,无副作用)——
+export const __test = { archive, _archiveOnce, state, getSettings };

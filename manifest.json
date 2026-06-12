@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Claude Archive — 完整聊天记录本地存档",
-  "version": "2.9.0",
+  "version": "2.9.1",
   "description": "实时捕获 Claude 对话(含思考过程、工具调用链、上传与生成的文件),自动保存为 Markdown + JSON,并内置仿 Claude 网页版的本地查看器。支持 claude.ai 及中转镜像站。",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "unlimitedStorage", "downloads", "offscreen", "tabs"],

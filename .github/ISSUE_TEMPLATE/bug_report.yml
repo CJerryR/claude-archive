@@ -1,0 +1,57 @@
+name: 🐛 Bug 报告
+description: 报告一个问题或异常
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请尽量填全，便于定位。涉及"对话追踪不上"的问题，请务必附上运行日志。
+  - type: input
+    id: version
+    attributes:
+      label: 扩展版本
+      placeholder: "如 2.7.0（见扩展弹窗或 manifest.json）"
+    validations:
+      required: true
+  - type: dropdown
+    id: browser
+    attributes:
+      label: 浏览器
+      options:
+        - Chrome
+        - Edge
+        - 其他（请在描述中注明）
+    validations:
+      required: true
+  - type: input
+    id: site
+    attributes:
+      label: 使用的站点
+      placeholder: "claude.ai / claude.hk.cn / 其他镜像"
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开某对话
+        2. 点击……
+        3. 观察到……
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果 vs 实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 运行日志（强烈建议）
+      description: 设置里开启「调试日志」→ 复现问题 → 点「导出日志」，把 `ClaudeArchive/_runlog.txt` 内容贴在这里。
+      render: text
+  - type: textarea
+    id: extra
+    attributes:
+      label: 其他信息 / 截图
